@@ -108,7 +108,7 @@ npm run electron       # Electron で起動
 src/
 ├── components/       # HeaderBar / Toolbox / CanvasViewport / InspectorPanel / 各ダイアログ
 ├── config/           # ConfigContext / configTypes / defaultConfig / validate / limits
-├── editor/           # EditorContext（状態）+ 各ツールエンジン
+├── editor/           # editorStore（Zustand 状態）/ EditorContext（型・Provider）+ 各ツールエンジン
 │   ├── drawTools.ts        # ストローク（Bresenham / Pixel-Perfect）
 │   ├── bucketTools.ts      # 特殊バケツ 5 モード + 色置換
 │   ├── selectionTools.ts   # 矩形/魔術の杖 + マスク構築
