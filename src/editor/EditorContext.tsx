@@ -13,6 +13,14 @@ import { useConfig } from "../config/ConfigContext";
 import { resolveMode, type EditorMode } from "../config/mode";
 import type { BucketMode } from "../config/configTypes";
 import {
+  ADJUST_LIMITS,
+  applyAdjustToLayer,
+  buildAdjustMask,
+  isIdentityAdjust,
+  type AdjustParams,
+  type AdjustParamKey,
+} from "./adjustTools";
+import {
   cloneLayer,
   createBlankLayer,
   type Layer,
@@ -95,6 +103,15 @@ export interface EditorContextValue {
   setReplaceTo: (hex: string) => void;
   setReplaceTolerance: (n: number) => void;
   setReplaceScope: (s: ReplaceScope) => void;
+
+  // --- 色調整（仕様書 4.4） ---
+  adjust: AdjustParams;
+  adjustScope: ReplaceScope;
+  setAdjustParam: (key: AdjustParamKey, value: number) => void;
+  setAdjustScope: (s: ReplaceScope) => void;
+  resetAdjust: () => void;
+  /** 選択中レイヤー（Utility Mode は全レイヤー）へ破壊的に適用 */
+  applyAdjust: () => void;
 
   // --- ビューポート ---
   view: ViewState;
@@ -179,6 +196,15 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     scope: "layer" as ReplaceScope,
   });
 
+  // --- 色調整（仕様書 4.4） ---
+  const [adjust, setAdjust] = useState<AdjustParams>({
+    hue: config.tools.adjustment.hue,
+    saturation: config.tools.adjustment.saturation,
+    value: config.tools.adjustment.value,
+    contrast: config.tools.adjustment.contrast,
+  });
+  const [adjustScope, setAdjustScope] = useState<ReplaceScope>("layer");
+
   // --- レイヤー初期状態: 1枚の空レイヤー ---
   const [layers, setLayers] = useState<Layer[]>(() => [
     createBlankLayer(
@@ -226,6 +252,60 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const mode = resolveMode(
+    docWidth,
+    docHeight,
+    config.canvas.full_feature_threshold
+  );
+
+  const defaultAdjust = config.tools.adjustment;
+  const setAdjustParam = useCallback(
+    (key: AdjustParamKey, value: number) => {
+      const lim = ADJUST_LIMITS[key];
+      setAdjust((a) => ({
+        ...a,
+        [key]: Math.max(lim.min, Math.min(lim.max, Math.round(value))),
+      }));
+    },
+    []
+  );
+  const resetAdjust = useCallback(() => {
+    setAdjust({
+      hue: defaultAdjust.hue,
+      saturation: defaultAdjust.saturation,
+      value: defaultAdjust.value,
+      contrast: defaultAdjust.contrast,
+    });
+  }, [defaultAdjust.contrast, defaultAdjust.hue, defaultAdjust.saturation, defaultAdjust.value]);
+
+  const applyAdjust = useCallback(() => {
+    if (isIdentityAdjust(adjust)) return;
+    const targets =
+      mode === "utility"
+        ? layers
+        : layers.filter((l) => l.id === activeLayerId);
+    for (const layer of targets) {
+      const mask = buildAdjustMask(
+        adjustScope,
+        selection,
+        layer.canvas.width,
+        layer.canvas.height
+      );
+      applyAdjustToLayer(layer, adjust, mask);
+    }
+    bumpRevision();
+    resetAdjust();
+  }, [
+    activeLayerId,
+    adjust,
+    adjustScope,
+    bumpRevision,
+    layers,
+    mode,
+    resetAdjust,
+    selection,
+  ]);
+
   // activeLayerId の整合保証（削除・リセット後は最上層を選択）
   useEffect(() => {
     if (layers.length === 0) return;
@@ -233,12 +313,6 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       setActiveLayerId(layers[layers.length - 1].id);
     }
   }, [layers, activeLayerId]);
-
-  const mode = resolveMode(
-    docWidth,
-    docHeight,
-    config.canvas.full_feature_threshold
-  );
 
   // config.yaml（再）読み込み時に初期値を同期する
   useEffect(() => {
@@ -259,6 +333,12 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       contiguous: config.tools.magic_wand.contiguous,
     });
     setReplace((r) => ({ ...r, tolerance: config.tools.replace.tolerance }));
+    setAdjust({
+      hue: config.tools.adjustment.hue,
+      saturation: config.tools.adjustment.saturation,
+      value: config.tools.adjustment.value,
+      contrast: config.tools.adjustment.contrast,
+    });
     setView((v) => ({
       ...v,
       zoom: clamp(v.zoom, config.ui.zoom_min, config.ui.zoom_max),
@@ -559,6 +639,12 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       setReplaceTo,
       setReplaceTolerance,
       setReplaceScope,
+      adjust,
+      adjustScope,
+      setAdjustParam,
+      setAdjustScope,
+      resetAdjust,
+      applyAdjust,
       view,
       setView,
       viewportSize,
@@ -609,6 +695,12 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       setReplaceTo,
       setReplaceTolerance,
       setReplaceScope,
+      adjust,
+      adjustScope,
+      setAdjustParam,
+      setAdjustScope,
+      resetAdjust,
+      applyAdjust,
       view,
       viewportSize,
       setZoom,

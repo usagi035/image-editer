@@ -2,6 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useConfig } from "../config/ConfigContext";
 import { isPaintToolAllowed } from "../config/mode";
 import { useEditor } from "../editor/EditorContext";
+import {
+  getAdjustPreview,
+  isIdentityAdjust,
+  type AdjustPreviewCache,
+} from "../editor/adjustTools";
 import { getComposite } from "../editor/compositor";
 import { applyBucketToLayer } from "../editor/bucketTools";
 import { hexToUint32, uint32ToHex } from "../editor/colorUtils";
@@ -51,11 +56,14 @@ export default function CanvasViewport() {
     setSelection,
     wand,
     setReplaceFrom,
+    adjust,
+    adjustScope,
   } = useEditor();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const compositeRef = useRef<import("../editor/compositor").CompositeCache | null>(null);
+  const adjustPreviewRef = useRef<AdjustPreviewCache | null>(null);
   const strokeRef = useRef<StrokeSession | null>(null);
   const selectRef = useRef<DocPoint | null>(null);
   const spaceRef = useRef(false);
@@ -94,6 +102,8 @@ export default function CanvasViewport() {
     if (!canvas || size.w === 0 || size.h === 0) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    // 色調整ツールでパラメータが変化している時はリアルタイムプレビュー（仕様書 4.4）
+    const previewing = tool === "hsv" && !isIdentityAdjust(adjust);
     renderViewport({
       ctx,
       cssWidth: size.w,
@@ -105,6 +115,22 @@ export default function CanvasViewport() {
       config,
       selection,
       composite: (docCtx) => {
+        if (previewing) {
+          adjustPreviewRef.current = getAdjustPreview(adjustPreviewRef.current, {
+            layers,
+            activeLayerId,
+            params: adjust,
+            scope: adjustScope,
+            selection,
+            utility: mode === "utility",
+            width: docWidth,
+            height: docHeight,
+            revision,
+            previewThreshold: config.canvas.full_feature_threshold,
+          });
+          docCtx.drawImage(adjustPreviewRef.current.canvas, 0, 0, docWidth, docHeight);
+          return;
+        }
         compositeRef.current = getComposite(
           compositeRef.current,
           layers,
@@ -115,7 +141,21 @@ export default function CanvasViewport() {
         docCtx.drawImage(compositeRef.current.canvas, 0, 0);
       },
     });
-  }, [size, view, docWidth, docHeight, config, layers, revision, selection]);
+  }, [
+    size,
+    view,
+    docWidth,
+    docHeight,
+    config,
+    layers,
+    revision,
+    selection,
+    tool,
+    adjust,
+    adjustScope,
+    activeLayerId,
+    mode,
+  ]);
 
   // --- ホイールズーム（preventDefault のため非 passive で購読） ---
   useEffect(() => {
