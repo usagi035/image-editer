@@ -2,6 +2,11 @@ import { ArrowLeftRight } from "lucide-react";
 import type { BucketMode } from "../config/configTypes";
 import { useConfig } from "../config/ConfigContext";
 import { useEditor, type ReplaceScope } from "../editor/EditorContext";
+import {
+  ADJUST_LIMITS,
+  isIdentityAdjust,
+  type AdjustParamKey,
+} from "../editor/adjustTools";
 import { replaceColorInLayer } from "../editor/bucketTools";
 import { hexToUint32 } from "../editor/colorUtils";
 import { buildSelectionMask } from "../editor/selectionTools";
@@ -243,6 +248,98 @@ function ColorReplaceOptions() {
   );
 }
 
+/* ---------------- 色調整（仕様書 4.4） ---------------- */
+
+function HsvOptions() {
+  const {
+    adjust,
+    adjustScope,
+    setAdjustParam,
+    setAdjustScope,
+    resetAdjust,
+    applyAdjust,
+    selection,
+    mode,
+    activeLayerId,
+    layers,
+  } = useEditor();
+  const active = layers.find((l) => l.id === activeLayerId);
+  const needSelection = adjustScope === "selection";
+  const canApply =
+    !!active && !isIdentityAdjust(adjust) && (!needSelection || !!selection);
+  const params: { key: AdjustParamKey; label: string; suffix: string }[] = [
+    { key: "hue", label: "Hue", suffix: "°" },
+    { key: "saturation", label: "彩度", suffix: "" },
+    { key: "value", label: "明度", suffix: "" },
+    { key: "contrast", label: "コントラスト", suffix: "" },
+  ];
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Hint
+        text={
+          mode === "utility"
+            ? "Utility Mode: 全レイヤーへ適用されます（低解像度プレビュー）"
+            : "スライダー移動でリアルタイムプレビュー。適用で選択中レイヤーを書き換えます"
+        }
+      />
+      {params.map((p) => (
+        <SliderRow
+          key={p.key}
+          label={p.label}
+          value={adjust[p.key]}
+          min={ADJUST_LIMITS[p.key].min}
+          max={ADJUST_LIMITS[p.key].max}
+          onChange={(n) => setAdjustParam(p.key, n)}
+          suffix={p.suffix}
+        />
+      ))}
+      <label className="flex items-center gap-2">
+        <span className="w-16 shrink-0 text-app-muted">範囲</span>
+        <select
+          value={adjustScope}
+          onChange={(e) => setAdjustScope(e.target.value as ReplaceScope)}
+          disabled={mode === "utility"}
+          className="min-w-0 flex-1 rounded px-2 py-1 disabled:opacity-40"
+          style={{
+            background: "var(--color-panel-alt)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <option value="layer">選択中レイヤー全体</option>
+          <option value="selection" disabled={!selection}>
+            選択範囲{selection ? "" : "（未選択）"}
+          </option>
+        </select>
+      </label>
+      <div className="flex gap-1">
+        <button
+          className="flex-1 rounded py-1 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+          style={{ background: "var(--color-accent)" }}
+          disabled={!canApply}
+          onClick={applyAdjust}
+        >
+          適用
+        </button>
+        <button
+          className="flex-1 rounded py-1"
+          style={{
+            background: "var(--color-panel-alt)",
+            border: "1px solid var(--color-border)",
+          }}
+          onClick={resetAdjust}
+          title="パラメータを初期値に戻す"
+        >
+          リセット
+        </button>
+      </div>
+      {needSelection && !selection && (
+        <Hint text="選択範囲がありません（矩形選択/魔術の杖で指定してください）" />
+      )}
+    </div>
+  );
+}
+
 /* ---------------- ツールオプション ---------------- */
 
 function ToolOptionsSection() {
@@ -362,7 +459,7 @@ function ToolOptionsSection() {
       case "resize":
         return <Hint text="幅・高さを指定してドキュメント全体をリサイズします" />;
       case "hsv":
-        return <Hint text="スライダーでリアルタイムプレビューを行います" />;
+        return <HsvOptions />;
       default:
         return <Hint text="—" />;
     }
