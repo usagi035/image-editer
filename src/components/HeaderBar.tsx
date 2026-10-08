@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   FilePlus,
   FolderOpen,
@@ -11,6 +11,9 @@ import {
 import { useConfig } from "../config/ConfigContext";
 import { MODE_LABEL } from "../config/mode";
 import { useEditor } from "../editor/EditorContext";
+import type { ExportFormat } from "../editor/ioTools";
+import { isTypingTarget, matchesShortcut } from "../editor/shortcuts";
+import ExportDialog from "./ExportDialog";
 import NewDocumentDialog from "./NewDocumentDialog";
 
 function HeaderButton({
@@ -65,8 +68,58 @@ export default function HeaderBar() {
     resetZoom,
     toggleGrid,
     newDocument,
+    loadImage,
+    exportImage,
   } = useEditor();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  /** ファイル読み込み（Electron ダイアログ or ブラウザ file input） */
+  const openFile = async () => {
+    setLoadError(null);
+    try {
+      if (window.electronAPI?.openImageFile) {
+        const picked = await window.electronAPI.openImageFile();
+        if (picked) await loadImage(picked.dataUrl, picked.name);
+        return;
+      }
+      fileInputRef.current?.click();
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "読み込みに失敗しました");
+    }
+  };
+
+  const onFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setLoadError(null);
+    try {
+      const url = URL.createObjectURL(file);
+      await loadImage(url, file.name);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "読み込みに失敗しました");
+    }
+  };
+
+  // Ctrl+S: 既定形式・1x で即書き出し（config: shortcuts.save / export.*）
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isTypingTarget(e.target)) return;
+      if (matchesShortcut(e, config.shortcuts.save)) {
+        e.preventDefault();
+        void exportImage(
+          config.export.default_format as ExportFormat,
+          config.export.scales[0] ?? 1
+        );
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [config.export.default_format, config.export.scales, config.shortcuts.save, exportImage]);
 
   const isPixel = mode === "pixel";
   const accent = config.theme.colors.accent;
@@ -91,14 +144,14 @@ export default function HeaderBar() {
       >
         <FilePlus size={15} />
       </HeaderButton>
-      <HeaderButton
-        label="開く"
-        disabled
-        title="ファイル読み込みは次の実装段階で有効化"
-      >
+      <HeaderButton label="開く" onClick={() => void openFile()} title="画像ファイルを読み込む（PNG/JPEG/WebP/GIF）">
         <FolderOpen size={15} />
       </HeaderButton>
-      <HeaderButton label="保存" disabled title="保存は次の実装段階で有効化">
+      <HeaderButton
+        label="保存"
+        onClick={() => setExportOpen(true)}
+        title={`エクスポート（${config.shortcuts.save} でも書き出し）`}
+      >
         <Save size={15} />
       </HeaderButton>
       <HeaderButton
@@ -172,11 +225,26 @@ export default function HeaderBar() {
         </button>
       </div>
 
+      {loadError && (
+        <span className="mx-2" style={{ color: "var(--color-danger)", fontSize: "0.85em" }}>
+          {loadError}
+        </span>
+      )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        className="hidden"
+        onChange={(e) => void onFileSelected(e)}
+      />
+
       <NewDocumentDialog
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
         onCreate={(w, h) => newDocument(w, h)}
       />
+      <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
     </header>
   );
 }

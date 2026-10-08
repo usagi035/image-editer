@@ -13,6 +13,18 @@ import { useConfig } from "../config/ConfigContext";
 import { resolveMode, type EditorMode } from "../config/mode";
 import type { BucketMode } from "../config/configTypes";
 import {
+  canvasToBlob,
+  cropLayers,
+  downloadBlob,
+  EXPORT_EXT,
+  layerFromImage,
+  loadImageElement,
+  qualityFor,
+  renderExportCanvas,
+  resizeLayers,
+  type ExportFormat,
+} from "./ioTools";
+import {
   ADJUST_LIMITS,
   applyAdjustToLayer,
   buildAdjustMask,
@@ -46,10 +58,18 @@ export interface EditorContextValue {
   docWidth: number;
   docHeight: number;
   mode: EditorMode;
-  /** リサイズ（Unit I でレイヤー縮放対応） */
+  /** ドキュメント名（保存時の既定ファイル名に使用） */
+  docName: string;
+  /** 全レイヤーを含めてリサイズ（仕様書 5 / Utility Mode） */
   setDocumentSize: (w: number, h: number) => void;
   /** 新規作成: 寸法変更 + レイヤー初期化を同時に行う */
   newDocument: (w: number, h: number) => void;
+  /** 画像読み込み（dataUrl/objectURL）: ドキュメント置換 */
+  loadImage: (src: string, name: string) => Promise<void>;
+  /** 選択範囲（未選択時は全画面）で全レイヤーを切り出す */
+  cropDocument: (x: number, y: number, w: number, h: number) => void;
+  /** 書き出し（Electron 保存 or ブラウザDL）。戻り値は保存先（キャンセル時は null） */
+  exportImage: (format: ExportFormat, scale: number) => Promise<string | null>;
 
   // --- ツール ---
   tool: ToolId;
@@ -157,6 +177,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   const [docWidth, setDocWidth] = useState(config.canvas.default_width);
   const [docHeight, setDocHeight] = useState(config.canvas.default_height);
+  const [docName, setDocName] = useState("untitled");
   const [tool, setTool] = useState<ToolId>("pen");
   const [primaryColor, setPrimaryColor] = useState(
     toHexColor(config.tools.pen.default_color)
@@ -349,10 +370,19 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const setDocumentSize = useCallback(
     (w: number, h: number) => {
       const max = config.canvas.max_size;
-      setDocWidth(clamp(Math.round(w), 1, max));
-      setDocHeight(clamp(Math.round(h), 1, max));
+      const nw = clamp(Math.round(w), 1, max);
+      const nh = clamp(Math.round(h), 1, max);
+      // 全レイヤーのピクセルをスケール（仕様書 5 リサイズ）
+      setLayers((prev) => {
+        resizeLayers(prev, nw, nh);
+        return [...prev];
+      });
+      setDocWidth(nw);
+      setDocHeight(nh);
+      setSelectionState(null);
+      bumpRevision();
     },
-    [config.canvas.max_size]
+    [bumpRevision, config.canvas.max_size]
   );
 
   const newDocument = useCallback(
@@ -362,6 +392,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       const nh = clamp(Math.round(h), 1, max);
       setDocWidth(nw);
       setDocHeight(nh);
+      setDocName("untitled");
       const layer = createBlankLayer(
         nw,
         nh,
@@ -374,6 +405,74 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       bumpRevision();
     },
     [config.canvas.background_color, config.canvas.max_size, bumpRevision]
+  );
+
+  const loadImage = useCallback(
+    async (src: string, name: string) => {
+      const img = await loadImageElement(src);
+      const max = config.canvas.max_size;
+      const nw = clamp(img.naturalWidth || img.width, 1, max);
+      const nh = clamp(img.naturalHeight || img.height, 1, max);
+      const layer = layerFromImage(img);
+      if (layer.canvas.width !== nw || layer.canvas.height !== nh) {
+        resizeLayers([layer], nw, nh);
+      }
+      setDocWidth(nw);
+      setDocHeight(nh);
+      setDocName(name.replace(/\.[^.]+$/, "") || "untitled");
+      setLayers([layer]);
+      setActiveLayerId(layer.id);
+      setSelectionState(null);
+      bumpRevision();
+    },
+    [bumpRevision, config.canvas.max_size]
+  );
+
+  const cropDocument = useCallback(
+    (x: number, y: number, w: number, h: number) => {
+      const sx = clamp(Math.round(x), 0, docWidth - 1);
+      const sy = clamp(Math.round(y), 0, docHeight - 1);
+      const sw = clamp(Math.round(w), 1, docWidth - sx);
+      const sh = clamp(Math.round(h), 1, docHeight - sy);
+      setLayers((prev) => {
+        cropLayers(prev, sx, sy, sw, sh);
+        return [...prev];
+      });
+      setDocWidth(sw);
+      setDocHeight(sh);
+      setSelectionState(null);
+      bumpRevision();
+    },
+    [bumpRevision, config.canvas.max_size, docHeight, docWidth]
+  );
+
+  const exportImage = useCallback(
+    async (format: ExportFormat, scale: number): Promise<string | null> => {
+      const canvas = renderExportCanvas(layers, docWidth, docHeight, scale);
+      const quality = qualityFor(
+        format,
+        format === "jpeg" ? config.export.jpeg_quality : config.export.webp_quality
+      );
+      const fileName = `${docName || "untitled"}.${EXPORT_EXT[format]}`;
+      // Electron: ネイティブ保存ダイアログ（仕様書 5）
+      if (window.electronAPI?.saveImageFile) {
+        const dataUrl = canvas.toDataURL(
+          format === "png" ? "image/png" : format === "jpeg" ? "image/jpeg" : "image/webp",
+          quality
+        );
+        const res = await window.electronAPI.saveImageFile({
+          defaultName: fileName,
+          dataUrl,
+        });
+        if (res.canceled || !res.path) return null;
+        return res.path;
+      }
+      // ブラウザ: ダウンロード
+      const blob = await canvasToBlob(canvas, format, quality);
+      downloadBlob(blob, fileName);
+      return fileName;
+    },
+    [config.export.jpeg_quality, config.export.webp_quality, docHeight, docName, docWidth, layers]
   );
 
   // --- レイヤー操作（仕様書 4.5） ---
@@ -598,8 +697,12 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       docWidth,
       docHeight,
       mode,
+      docName,
       setDocumentSize,
       newDocument,
+      loadImage,
+      cropDocument,
+      exportImage,
       tool,
       setTool,
       primaryColor,
@@ -658,8 +761,12 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       docWidth,
       docHeight,
       mode,
+      docName,
       setDocumentSize,
       newDocument,
+      loadImage,
+      cropDocument,
+      exportImage,
       tool,
       primaryColor,
       secondaryColor,
