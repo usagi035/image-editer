@@ -37,11 +37,12 @@ export const DEFAULT_CONFIG: AppConfig = {
     selection_color: "#5b8cff",
     checkerboard_color_a: "#3a3e4b",
     checkerboard_color_b: "#2b2e38",
+    checker_cell_size: 8,
     background_color: "#00000000",
   },
   tools: {
-    pen: { size: 1, pixel_perfect: true, default_color: "#000000ff" },
-    eraser: { size: 1 },
+    pen: { size: 1, max_size: 16, pixel_perfect: true, default_color: "#000000ff" },
+    eraser: { size: 1, max_size: 16 },
     bucket: {
       mode: "flood",
       tolerance: 16,
@@ -59,6 +60,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   ui: {
     show_grid: true,
     grid_min_zoom: 8,
+    grid_strong_interval: 16,
+    grid_max_lines: 1024,
     zoom_min: 0.05,
     zoom_max: 64,
     zoom_step: 1.25,

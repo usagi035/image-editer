@@ -36,15 +36,18 @@ canvas:
   selection_color: "#5b8cff"
   checkerboard_color_a: "#3a3e4b"
   checkerboard_color_b: "#2b2e38"
+  checker_cell_size: 8           # 透過確認用チェッカーボードのセル(CSS px)
   background_color: "#00000000"  # 新規キャンバス初期色（RGBA）
 
 tools:
   pen:
     size: 1
+    max_size: 16                 # ペン太さ上限(px)
     pixel_perfect: true          # Pixel-Perfect 切り替え初期値
     default_color: "#000000ff"
   eraser:
     size: 1
+    max_size: 16                 # 消しゴム太さ上限(px)
   bucket:
     mode: "flood"                # flood | global | noise | dither | eraser
     tolerance: 16                # 許容値 0〜255
@@ -71,6 +74,8 @@ tools:
 ui:
   show_grid: true                # ズーム時にグリッド線を表示
   grid_min_zoom: 8               # この倍率未満ではグリッド非表示
+  grid_strong_interval: 16       # 太線を引く間隔(px) - 16x16ブロック境界向け
+  grid_max_lines: 1024           # グリッド描画する最大画素数(性能ガード)
   zoom_min: 0.05
   zoom_max: 64
   zoom_step: 1.25                # ホイールズーム係数
