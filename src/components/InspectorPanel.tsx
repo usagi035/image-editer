@@ -3,6 +3,8 @@ import type { BucketMode } from "../config/configTypes";
 import { useConfig } from "../config/ConfigContext";
 import { useEditor } from "../editor/EditorContext";
 import type { ToolId } from "../editor/types";
+import LayersPanel from "./LayersPanel";
+import { Hint, SectionTitle, SliderRow, ToggleRow } from "./ui";
 
 /* ---------------- カラーセクション ---------------- */
 
@@ -73,96 +75,6 @@ function ColorSection() {
         </button>
       </div>
     </section>
-  );
-}
-
-/* ---------------- セクション見出し ---------------- */
-
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <h3
-      className="px-3 py-1.5 font-semibold"
-      style={{
-        background: "var(--color-panel-alt)",
-        borderBottom: "1px solid var(--color-border)",
-        borderTop: "1px solid var(--color-border)",
-        fontSize: "0.9em",
-      }}
-    >
-      {children}
-    </h3>
-  );
-}
-
-/* ---------------- 共通コントロール ---------------- */
-
-function SliderRow({
-  label,
-  value,
-  min,
-  max,
-  onChange,
-  disabled,
-  suffix = "",
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  onChange: (n: number) => void;
-  disabled?: boolean;
-  suffix?: string;
-}) {
-  return (
-    <label
-      className={`flex items-center gap-2 ${disabled ? "opacity-40" : ""}`}
-    >
-      <span className="w-16 shrink-0 text-app-muted">{label}</span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        value={value}
-        disabled={disabled}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="min-w-0 flex-1"
-        style={{ accentColor: "var(--color-accent)" }}
-      />
-      <span className="w-10 text-right font-mono-nums">
-        {value}
-        {suffix}
-      </span>
-    </label>
-  );
-}
-
-function ToggleRow({
-  label,
-  checked,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (b: boolean) => void;
-}) {
-  return (
-    <label className="flex cursor-pointer items-center gap-2">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        style={{ accentColor: "var(--color-accent)" }}
-      />
-      <span>{label}</span>
-    </label>
-  );
-}
-
-function Hint({ text }: { text: string }) {
-  return (
-    <p className="text-app-muted" style={{ fontSize: "0.85em" }}>
-      {text}
-    </p>
   );
 }
 
@@ -299,21 +211,6 @@ function ToolOptionsSection() {
   );
 }
 
-/* ---------------- レイヤー（プレースホルダ: 次機能で置換） ---------------- */
-
-function LayersSection() {
-  return (
-    <section className="flex min-h-0 flex-1 flex-col">
-      <SectionTitle>レイヤー</SectionTitle>
-      <div className="flex flex-1 items-center justify-center px-3 py-4">
-        <span className="text-app-muted" style={{ fontSize: "0.85em" }}>
-          レイヤー機能は次の実装段階で有効化
-        </span>
-      </div>
-    </section>
-  );
-}
-
 /* ---------------- 右パネル本体 ---------------- */
 
 /**
@@ -331,7 +228,7 @@ export default function InspectorPanel() {
     >
       <ColorSection />
       <ToolOptionsSection />
-      <LayersSection />
+      <LayersPanel />
     </aside>
   );
 }

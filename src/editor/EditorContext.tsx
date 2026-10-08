@@ -4,7 +4,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type Dispatch,
   type ReactNode,
@@ -13,6 +12,11 @@ import {
 import { useConfig } from "../config/ConfigContext";
 import { resolveMode, type EditorMode } from "../config/mode";
 import type { BucketMode } from "../config/configTypes";
+import {
+  cloneLayer,
+  createBlankLayer,
+  type Layer,
+} from "./layerUtils";
 import { isTypingTarget, matchesShortcut } from "./shortcuts";
 import type { ToolId, ViewportSize, ViewState } from "./types";
 
@@ -32,10 +36,10 @@ export interface EditorContextValue {
   docWidth: number;
   docHeight: number;
   mode: EditorMode;
+  /** リサイズ（Unit I でレイヤー縮放対応） */
   setDocumentSize: (w: number, h: number) => void;
-  /** 新規作成時にレイヤー等をリセットするためのフック（Unit D で拡張） */
-  onNewDocument: () => void;
-  setOnNewDocument: (fn: () => void) => void;
+  /** 新規作成: 寸法変更 + レイヤー初期化を同時に行う */
+  newDocument: (w: number, h: number) => void;
 
   // --- ツール ---
   tool: ToolId;
@@ -58,6 +62,22 @@ export interface EditorContextValue {
   setBucketMode: (m: BucketMode) => void;
   setBucketTolerance: (n: number) => void;
   setBucketJitter: (n: number) => void;
+
+  // --- レイヤー（仕様書 4.5） ---
+  layers: Layer[]; // index 0 = 下層
+  activeLayerId: string;
+  setActiveLayerId: (id: string) => void;
+  addLayer: () => void;
+  duplicateLayer: (id: string) => void;
+  deleteLayer: (id: string) => void;
+  /** dir: +1 で上へ、-1 で下へ */
+  moveLayer: (id: string, dir: 1 | -1) => void;
+  setLayerOpacity: (id: string, opacity: number) => void;
+  toggleLayerVisible: (id: string) => void;
+  mergeDown: (id: string) => void;
+  /** ピクセル変更時の再描画要求カウンタ */
+  revision: number;
+  bumpRevision: () => void;
 
   // --- ビューポート ---
   view: ViewState;
@@ -86,6 +106,16 @@ function toHexColor(c: string): string {
     return `#${r}${r}${g}${g}${b}${b}`;
   }
   return "#000000";
+}
+
+function nextLayerName(existing: Layer[]): string {
+  // 既存の最大番号 + 1（純粋な計算・モジュール状態を持たない）
+  let max = 0;
+  for (const l of existing) {
+    const m = /^レイヤー (\d+)/.exec(l.name);
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return `レイヤー ${max + 1}`;
 }
 
 export function EditorProvider({ children }: { children: ReactNode }) {
@@ -117,13 +147,28 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     showGrid: config.ui.show_grid,
   });
   const [viewportSize, setViewportSize] = useState<ViewportSize>({ w: 0, h: 0 });
-  const newDocRef = useRef<() => void>(() => {});
+  const [revision, setRevision] = useState(0);
 
-  const setOnNewDocument = useCallback((fn: () => void) => {
-    newDocRef.current = fn;
-  }, []);
+  // --- レイヤー初期状態: 1枚の空レイヤー ---
+  const [layers, setLayers] = useState<Layer[]>(() => [
+    createBlankLayer(
+      config.canvas.default_width,
+      config.canvas.default_height,
+      "レイヤー 1",
+      config.canvas.background_color
+    ),
+  ]);
+  const [activeLayerId, setActiveLayerId] = useState<string>("");
 
-  const onNewDocument = useCallback(() => newDocRef.current(), []);
+  const bumpRevision = useCallback(() => setRevision((r) => r + 1), []);
+
+  // activeLayerId の整合保証（削除・リセット後は最上層を選択）
+  useEffect(() => {
+    if (layers.length === 0) return;
+    if (!layers.some((l) => l.id === activeLayerId)) {
+      setActiveLayerId(layers[layers.length - 1].id);
+    }
+  }, [layers, activeLayerId]);
 
   const mode = resolveMode(
     docWidth,
@@ -152,11 +197,144 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     }));
   }, [config]);
 
-  const setDocumentSize = useCallback((w: number, h: number) => {
-    const max = config.canvas.max_size;
-    setDocWidth(clamp(Math.round(w), 1, max));
-    setDocHeight(clamp(Math.round(h), 1, max));
-  }, [config.canvas.max_size]);
+  const setDocumentSize = useCallback(
+    (w: number, h: number) => {
+      const max = config.canvas.max_size;
+      setDocWidth(clamp(Math.round(w), 1, max));
+      setDocHeight(clamp(Math.round(h), 1, max));
+    },
+    [config.canvas.max_size]
+  );
+
+  const newDocument = useCallback(
+    (w: number, h: number) => {
+      const max = config.canvas.max_size;
+      const nw = clamp(Math.round(w), 1, max);
+      const nh = clamp(Math.round(h), 1, max);
+      setDocWidth(nw);
+      setDocHeight(nh);
+      const layer = createBlankLayer(
+        nw,
+        nh,
+        "レイヤー 1",
+        config.canvas.background_color
+      );
+      setLayers([layer]);
+      setActiveLayerId(layer.id);
+      bumpRevision();
+    },
+    [config.canvas.background_color, config.canvas.max_size, bumpRevision]
+  );
+
+  // --- レイヤー操作（仕様書 4.5） ---
+
+  const addLayer = useCallback(() => {
+    if (layers.length >= config.tools.layers.max_layers) return;
+    const index = layers.findIndex((l) => l.id === activeLayerId);
+    const insertAt = index >= 0 ? index + 1 : layers.length;
+    const layer = createBlankLayer(
+      docWidth,
+      docHeight,
+      nextLayerName(layers),
+      config.canvas.background_color
+    );
+    const next = [...layers];
+    next.splice(insertAt, 0, layer);
+    setLayers(next);
+    setActiveLayerId(layer.id);
+    bumpRevision();
+  }, [
+    activeLayerId,
+    bumpRevision,
+    config.canvas.background_color,
+    config.tools.layers.max_layers,
+    docHeight,
+    docWidth,
+    layers,
+  ]);
+
+  const duplicateLayer = useCallback(
+    (id: string) => {
+      const index = layers.findIndex((l) => l.id === id);
+      if (index < 0) return;
+      const source = layers[index];
+      const copy = cloneLayer(source, `${source.name} のコピー`);
+      const next = [...layers];
+      next.splice(index + 1, 0, copy);
+      setLayers(next);
+      setActiveLayerId(copy.id);
+      bumpRevision();
+    },
+    [bumpRevision, layers]
+  );
+
+  const deleteLayer = useCallback(
+    (id: string) => {
+      setLayers((prev) => {
+        if (prev.length <= 1) return prev;
+        const index = prev.findIndex((l) => l.id === id);
+        if (index < 0) return prev;
+        return prev.filter((l) => l.id !== id);
+      });
+      bumpRevision();
+    },
+    [bumpRevision]
+  );
+
+  const moveLayer = useCallback(
+    (id: string, dir: 1 | -1) => {
+      setLayers((prev) => {
+        const index = prev.findIndex((l) => l.id === id);
+        const target = index + dir;
+        if (index < 0 || target < 0 || target >= prev.length) return prev;
+        const next = [...prev];
+        [next[index], next[target]] = [next[target], next[index]];
+        return next;
+      });
+      bumpRevision();
+    },
+    [bumpRevision]
+  );
+
+  const setLayerOpacity = useCallback(
+    (id: string, opacity: number) => {
+      const v = clamp(Math.round(opacity), 0, 100);
+      setLayers((prev) =>
+        prev.map((l) => (l.id === id ? { ...l, opacity: v } : l))
+      );
+      bumpRevision();
+    },
+    [bumpRevision]
+  );
+
+  const toggleLayerVisible = useCallback(
+    (id: string) => {
+      setLayers((prev) =>
+        prev.map((l) => (l.id === id ? { ...l, visible: !l.visible } : l))
+      );
+      bumpRevision();
+    },
+    [bumpRevision]
+  );
+
+  const mergeDown = useCallback(
+    (id: string) => {
+      const index = layers.findIndex((l) => l.id === id);
+      if (index <= 0) return;
+      const src = layers[index];
+      const dst = layers[index - 1];
+      const ctx = dst.canvas.getContext("2d")!;
+      ctx.globalAlpha = src.opacity / 100;
+      ctx.drawImage(src.canvas, 0, 0);
+      ctx.globalAlpha = 1;
+      setLayers(layers.filter((l) => l.id !== src.id));
+      setActiveLayerId(dst.id);
+      bumpRevision();
+    },
+    [bumpRevision, layers]
+  );
+
+  // --- ビューポート操作 ---
 
   const setZoom = useCallback(
     (zoom: number, anchor?: { x: number; y: number }) => {
@@ -165,15 +343,9 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         if (next === v.zoom) return v;
         const ax = anchor?.x ?? viewportSize.w / 2;
         const ay = anchor?.y ?? viewportSize.h / 2;
-        // アンカー下のキャンバス点を維持する
         const docX = (ax - v.panX) / v.zoom;
         const docY = (ay - v.panY) / v.zoom;
-        return {
-          ...v,
-          zoom: next,
-          panX: ax - docX * next,
-          panY: ay - docY * next,
-        };
+        return { ...v, zoom: next, panX: ax - docX * next, panY: ay - docY * next };
       });
     },
     [config.ui.zoom_max, config.ui.zoom_min, viewportSize.h, viewportSize.w]
@@ -216,7 +388,10 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   const setPenSize = useCallback(
     (n: number) =>
-      setPen((p) => ({ ...p, size: clamp(Math.round(n), 1, config.tools.pen.max_size) })),
+      setPen((p) => ({
+        ...p,
+        size: clamp(Math.round(n), 1, config.tools.pen.max_size),
+      })),
     [config.tools.pen.max_size]
   );
   const setPenPixelPerfect = useCallback(
@@ -225,9 +400,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   );
   const setEraserSize = useCallback(
     (n: number) =>
-      setEraserSizeState(
-        clamp(Math.round(n), 1, config.tools.eraser.max_size)
-      ),
+      setEraserSizeState(clamp(Math.round(n), 1, config.tools.eraser.max_size)),
     [config.tools.eraser.max_size]
   );
   const setBucketMode = useCallback(
@@ -235,8 +408,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     []
   );
   const setBucketTolerance = useCallback(
-    (n: number) =>
-      setBucket((b) => ({ ...b, tolerance: clamp(Math.round(n), 0, 255) })),
+    (n: number) => setBucket((b) => ({ ...b, tolerance: clamp(Math.round(n), 0, 255) })),
     []
   );
   const setBucketJitter = useCallback(
@@ -272,8 +444,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       docHeight,
       mode,
       setDocumentSize,
-      onNewDocument,
-      setOnNewDocument,
+      newDocument,
       tool,
       setTool,
       primaryColor,
@@ -290,6 +461,18 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       setBucketMode,
       setBucketTolerance,
       setBucketJitter,
+      layers,
+      activeLayerId,
+      setActiveLayerId,
+      addLayer,
+      duplicateLayer,
+      deleteLayer,
+      moveLayer,
+      setLayerOpacity,
+      toggleLayerVisible,
+      mergeDown,
+      revision,
+      bumpRevision,
       view,
       setView,
       viewportSize,
@@ -304,8 +487,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       docHeight,
       mode,
       setDocumentSize,
-      onNewDocument,
-      setOnNewDocument,
+      newDocument,
       tool,
       primaryColor,
       secondaryColor,
@@ -319,6 +501,17 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       setBucketMode,
       setBucketTolerance,
       setBucketJitter,
+      layers,
+      activeLayerId,
+      addLayer,
+      duplicateLayer,
+      deleteLayer,
+      moveLayer,
+      setLayerOpacity,
+      toggleLayerVisible,
+      mergeDown,
+      revision,
+      bumpRevision,
       view,
       viewportSize,
       setZoom,
