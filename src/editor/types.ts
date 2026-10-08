@@ -35,6 +35,24 @@ export interface DocPoint {
   y: number;
 }
 
+/**
+ * 選択状態（仕様書 4.3）
+ * - rect: 矩形選択（bbox のみ管理、mask は null）
+ * - wand: 魔術の杖（doc サイズの Uint8Array マスク + 着色用 tint キャンバス）
+ */
+export interface SelectionState {
+  kind: "rect" | "wand";
+  /** バウンディングボックス（doc 座標） */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** doc サイズの選択マスク（1=選択内）。rect では null。 */
+  mask: Uint8Array | null;
+  /** 選択領域の半透明プレビュー（wand 用、doc サイズ） */
+  tint?: HTMLCanvasElement;
+}
+
 /** ビューポート座標 → キャンバス座標変換 */
 export function viewToDoc(p: ViewPoint, view: ViewState): DocPoint {
   return {

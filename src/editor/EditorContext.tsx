@@ -18,7 +18,9 @@ import {
   type Layer,
 } from "./layerUtils";
 import { isTypingTarget, matchesShortcut } from "./shortcuts";
-import type { ToolId, ViewportSize, ViewState } from "./types";
+import type { SelectionState, ToolId, ViewportSize, ViewState } from "./types";
+
+export type ReplaceScope = "selection" | "layer";
 
 export interface PenOptions {
   size: number;
@@ -78,6 +80,21 @@ export interface EditorContextValue {
   /** ピクセル変更時の再描画要求カウンタ */
   revision: number;
   bumpRevision: () => void;
+
+  // --- 選択（仕様書 4.3） ---
+  selection: SelectionState | null;
+  setSelection: (sel: SelectionState | null) => void;
+  clearSelection: () => void;
+  wand: { tolerance: number; contiguous: boolean };
+  setWandTolerance: (n: number) => void;
+  setWandContiguous: (b: boolean) => void;
+
+  // --- 色置換（仕様書 4.3） ---
+  replace: { from: string; to: string; tolerance: number; scope: ReplaceScope };
+  setReplaceFrom: (hex: string) => void;
+  setReplaceTo: (hex: string) => void;
+  setReplaceTolerance: (n: number) => void;
+  setReplaceScope: (s: ReplaceScope) => void;
 
   // --- ビューポート ---
   view: ViewState;
@@ -149,6 +166,19 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const [viewportSize, setViewportSize] = useState<ViewportSize>({ w: 0, h: 0 });
   const [revision, setRevision] = useState(0);
 
+  // --- 選択・色置換 ---
+  const [selection, setSelectionState] = useState<SelectionState | null>(null);
+  const [wand, setWand] = useState({
+    tolerance: config.tools.magic_wand.tolerance,
+    contiguous: config.tools.magic_wand.contiguous,
+  });
+  const [replace, setReplace] = useState({
+    from: "#000000",
+    to: "#ffffff",
+    tolerance: config.tools.replace.tolerance,
+    scope: "layer" as ReplaceScope,
+  });
+
   // --- レイヤー初期状態: 1枚の空レイヤー ---
   const [layers, setLayers] = useState<Layer[]>(() => [
     createBlankLayer(
@@ -161,6 +191,40 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const [activeLayerId, setActiveLayerId] = useState<string>("");
 
   const bumpRevision = useCallback(() => setRevision((r) => r + 1), []);
+
+  const setSelection = useCallback((sel: SelectionState | null) => {
+    setSelectionState(sel);
+  }, []);
+  const clearSelection = useCallback(() => setSelectionState(null), []);
+  const setWandTolerance = useCallback(
+    (n: number) =>
+      setWand((w) => ({ ...w, tolerance: Math.max(0, Math.min(255, Math.round(n))) })),
+    []
+  );
+  const setWandContiguous = useCallback(
+    (b: boolean) => setWand((w) => ({ ...w, contiguous: b })),
+    []
+  );
+  const setReplaceFrom = useCallback(
+    (hex: string) => setReplace((r) => ({ ...r, from: hex })),
+    []
+  );
+  const setReplaceTo = useCallback(
+    (hex: string) => setReplace((r) => ({ ...r, to: hex })),
+    []
+  );
+  const setReplaceTolerance = useCallback(
+    (n: number) =>
+      setReplace((r) => ({
+        ...r,
+        tolerance: Math.max(0, Math.min(255, Math.round(n))),
+      })),
+    []
+  );
+  const setReplaceScope = useCallback(
+    (s: ReplaceScope) => setReplace((r) => ({ ...r, scope: s })),
+    []
+  );
 
   // activeLayerId の整合保証（削除・リセット後は最上層を選択）
   useEffect(() => {
@@ -190,6 +254,11 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     });
     setPrimaryColor(toHexColor(config.tools.pen.default_color));
     setSecondaryColor(toHexColor(config.tools.bucket.dither_secondary));
+    setWand({
+      tolerance: config.tools.magic_wand.tolerance,
+      contiguous: config.tools.magic_wand.contiguous,
+    });
+    setReplace((r) => ({ ...r, tolerance: config.tools.replace.tolerance }));
     setView((v) => ({
       ...v,
       zoom: clamp(v.zoom, config.ui.zoom_min, config.ui.zoom_max),
@@ -221,6 +290,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       );
       setLayers([layer]);
       setActiveLayerId(layer.id);
+      setSelectionState(null); // 新規作成時は選択を解除
       bumpRevision();
     },
     [config.canvas.background_color, config.canvas.max_size, bumpRevision]
@@ -420,6 +490,11 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTypingTarget(e.target)) return;
+      if (e.key === "Escape") {
+        // 選択解除
+        setSelectionState((s) => (s ? null : s));
+        return;
+      }
       if (matchesShortcut(e, config.shortcuts.toggle_grid)) {
         e.preventDefault();
         toggleGrid();
@@ -473,6 +548,17 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       mergeDown,
       revision,
       bumpRevision,
+      selection,
+      setSelection,
+      clearSelection,
+      wand,
+      setWandTolerance,
+      setWandContiguous,
+      replace,
+      setReplaceFrom,
+      setReplaceTo,
+      setReplaceTolerance,
+      setReplaceScope,
       view,
       setView,
       viewportSize,
@@ -512,6 +598,17 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       mergeDown,
       revision,
       bumpRevision,
+      selection,
+      setSelection,
+      clearSelection,
+      wand,
+      setWandTolerance,
+      setWandContiguous,
+      replace,
+      setReplaceFrom,
+      setReplaceTo,
+      setReplaceTolerance,
+      setReplaceScope,
       view,
       viewportSize,
       setZoom,

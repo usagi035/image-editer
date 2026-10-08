@@ -1,5 +1,5 @@
 import type { AppConfig } from "../config/configTypes";
-import type { ViewState } from "./types";
+import type { SelectionState, ViewState } from "./types";
 
 export interface ViewportRenderParams {
   ctx: CanvasRenderingContext2D;
@@ -10,6 +10,8 @@ export interface ViewportRenderParams {
   docHeight: number;
   view: ViewState;
   config: AppConfig;
+  /** 選択領域のオーバーレイ（仕様書 4.3） */
+  selection?: SelectionState | null;
   /**
    * レイヤー合成フック（Unit D で実装）。
    * 呼び出し時は ctx がキャンバス座標系（doc 座標）に変換済み。
@@ -147,7 +149,36 @@ export function renderViewport(p: ViewportRenderParams): void {
     ctx.restore();
   }
 
-  // 5. ドキュメント枠線（最外周ピクセルを潰さないよう外側に描画する）
+  // 5. 選択オーバーレイ（wand は半透明 tint、bbox は破線）
+  if (p.selection) {
+    const sel = p.selection;
+    if (sel.tint) {
+      ctx.save();
+      ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, ox, oy);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(sel.tint, 0, 0);
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const sx = ox + sel.x * zoom * dpr;
+    const sy = oy + sel.y * zoom * dpr;
+    const sw = sel.w * zoom * dpr;
+    const sh = sel.h * zoom * dpr;
+    ctx.strokeStyle = config.canvas.selection_color;
+    ctx.lineWidth = Math.max(1, dpr);
+    ctx.setLineDash([4 * Math.max(1, dpr), 4 * Math.max(1, dpr)]);
+    ctx.strokeRect(
+      sx + ctx.lineWidth / 2,
+      sy + ctx.lineWidth / 2,
+      Math.max(0, sw - ctx.lineWidth),
+      Math.max(0, sh - ctx.lineWidth)
+    );
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  // 6. ドキュメント枠線（最外周ピクセルを潰さないよう外側に描画する）
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = config.theme.colors.border;
