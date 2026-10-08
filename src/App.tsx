@@ -1,6 +1,7 @@
 import CanvasViewport from "./components/CanvasViewport";
 import HeaderBar from "./components/HeaderBar";
 import InspectorPanel from "./components/InspectorPanel";
+import NotifyHost from "./components/NotifyHost";
 import Toolbox from "./components/Toolbox";
 import { EditorProvider } from "./editor/EditorContext";
 
@@ -10,6 +11,7 @@ import { EditorProvider } from "./editor/EditorContext";
  * 2. Left Panel (Toolbox)
  * 3. Center Panel (Canvas Viewport)
  * 4. Right Panel (Inspector & Layers)
+ * 通知（トースト / エラーダイアログ）は NotifyHost が最前面に描画する。
  */
 export default function App() {
   return (
@@ -21,6 +23,7 @@ export default function App() {
           <CanvasViewport />
           <InspectorPanel />
         </div>
+        <NotifyHost />
       </div>
     </EditorProvider>
   );

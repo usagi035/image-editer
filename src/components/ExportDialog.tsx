@@ -95,9 +95,10 @@ export default function ExportDialog({ open, onClose }: Props) {
         {format !== "png" && (
           <p className="mb-2 text-app-muted" style={{ fontSize: "0.85em" }}>
             品質: {Math.round(
-              (format === "jpeg" ? config.export.jpeg_quality : config.export.webp_quality) * 100
+              format === "jpeg" ? config.export.jpeg_quality : config.export.webp_quality
             )}
             %（config: export.{format === "jpeg" ? "jpeg" : "webp"}_quality）
+            {format === "jpeg" && ` / 背景 ${config.export.jpeg_background}`}
           </p>
         )}
         {message && (

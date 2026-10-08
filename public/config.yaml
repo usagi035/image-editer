@@ -1,91 +1,102 @@
 # ============================================================
-# config.yaml - アプリケーション設定（UI/エンジン一元管理）
+# config.yaml - アプリケーション設定（UI/エンジン一元管理）[スキーマ v2]
 # 色・フォント・閾値などのハードコードは禁止され、全てここから参照する。
+# 改訂版仕様書 2.1 準拠。不正値・欠落キーは既定値にフォールバックし、
+# 画面下部にトーストで警告する（アプリは起動を続行する）。
+#
+# 参考: 開発時は本ファイルを編集 → ヘッダー「設定再読み込み」で反映。
+#       Electron 実行時は userData/config.yaml が優先される。
 # ============================================================
 
 app:
   name: "Image Editor"
   version: "0.1.0"
 
-theme:
-  colors:
-    background: "#1b1c22"        # メイン背景色
-    panel: "#24262e"             # パネル色
-    panel_alt: "#2c2f39"         # パネル補助色（入力欄など）
-    border: "#3a3e4b"            # 枠線色
-    accent: "#5b8cff"            # アクセント色
-    accent_hover: "#7aa3ff"      # アクセント hover
-    text: "#e7e9f0"              # 基本文字色
-    text_muted: "#99a0b5"        # 補助文字色
-    danger: "#ff5f6d"            # 危険操作色
-    header: "#17181e"            # ヘッダー色
-  font:
-    family: "'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif"
-    base_size: "13px"
-    mono_family: "'Consolas', 'Menlo', monospace"
-  radius: "4px"                  # コントロール角丸
-  density: "compact"             # compact | cozy
-
 canvas:
-  full_feature_threshold: 512    # この値以下で Pixel Art Mode（仕様書 2.2）
-  max_size: 5000                 # 最大読み込み/作成サイズ（END-GOAL: 5000x5000）
-  default_width: 32              # 新規作成時のデフォルト寸法
-  default_height: 32
+  default_width: 64                # 新規ドキュメントのデフォルト寸法
+  default_height: 64
+  max_pixels: 67108864             # 幅×高さの上限（8192x8192）。超える画像は開けない
+  worker_pixel_threshold: 1000000  # 対象ピクセル数がこの値以上の処理は Worker で実行
+  grid_min_zoom: 8                 # この倍率以上でグリッド線を表示
+  grid_strong_interval: 16         # 太線を引く間隔(px) - 16x16ブロック境界向け
+  grid_max_lines: 1024             # グリッド描画する最大画素数(性能ガード)
+  zoom_min: 0.0625                 # 1/16倍
+  zoom_max: 64
+  full_feature_threshold: 512      # 【廃止予定】モード切替閾値（改訂版 2.2 でモード分け廃止）
   grid_line_color: "rgba(255,255,255,0.07)"
   grid_line_color_strong: "rgba(255,255,255,0.16)"
-  selection_color: "#5b8cff"
-  checkerboard_color_a: "#3a3e4b"
+  selection_color: "#4f8cff"       # 選択範囲の点線色
+  checkerboard_color_a: "#3a3e4b"  # 透過確認用チェッカーボード
   checkerboard_color_b: "#2b2e38"
-  checker_cell_size: 8           # 透過確認用チェッカーボードのセル(CSS px)
-  background_color: "#00000000"  # 新規キャンバス初期色（RGBA）
+  checker_cell_size: 8             # チェッカーのセル(CSS px)
+  background_color: "#00000000"    # 新規キャンバス初期色（RGBA）
+
+memory:
+  budget_mb: 1536                  # 全レイヤー + 選択マスク + 履歴の合計上限
+
+history:
+  max_steps: 100                   # Undo/Redo の最大ステップ数
+  max_memory_mb: 512               # 履歴の合計サイズ上限（超過時は古い順に破棄）
+
+theme:
+  background: "#1e1e24"            # メイン背景色
+  panel: "#2a2a33"                 # パネル色
+  panel_alt: "#2c2f39"             # パネル補助色（入力欄など）
+  border: "#3a3e4b"                # 枠線色
+  accent: "#4f8cff"                # アクセント色
+  accent_hover: "#7aa3ff"          # アクセント hover
+  text: "#e7e9f0"                  # 基本文字色
+  text_muted: "#99a0b5"            # 補助文字色
+  danger: "#ff5f6d"                # 危険操作色
+  header: "#17181e"                # ヘッダー色
+  font: "Inter, system-ui, sans-serif"
+  font_size: "13px"
+  font_mono: "'Consolas', 'Menlo', monospace"
+  radius: "4px"                    # コントロール角丸
+
+ui:
+  show_grid: true                  # 起動時のグリッド表示
+  zoom_step: 1.25                  # ホイールズーム係数
+  show_mode_banner: true           # 【廃止予定】モードバナー表示（MS1 途中で削除）
 
 tools:
   pen:
     size: 1
-    max_size: 16                 # ペン太さ上限(px)
-    pixel_perfect: true          # Pixel-Perfect 切り替え初期値
-    default_color: "#000000ff"
+    max_size: 16                   # ペン太さ上限(px)
+    pixel_perfect: true            # Pixel-Perfect 切り替え初期値
+    default_color: "#000000ff"     # 初期プライマリ色（#RRGGBB or #RRGGBBAA）
   eraser:
     size: 1
-    max_size: 16                 # 消しゴム太さ上限(px)
+    max_size: 16
   bucket:
-    mode: "flood"                # flood | global | noise | dither | eraser
-    tolerance: 16                # 許容値 0〜255
-    jitter: 30                   # ノイズ強度 0〜100 (%)
+    mode: "flood"                  # flood | global | noise | dither | eraser
+    tolerance: 0                   # 許容値 0〜255（仕様書 4.2: 既定 0）
+    jitter: 20                     # ノイズ強度 0〜100（%）（既定 20）
     dither_primary: "#000000ff"
-    dither_secondary: "#ffffffff"
-    dither_pattern_size: 2       # ディザ柄のセルサイズ(px)
+    dither_secondary: "#ffffffff"  # 初期セカンダリ色
+    dither_pattern_size: 2         # ディザ柄のセルサイズ(px)
   eyedropper:
-    sample_merged: true          # 合成結果からスポイトするか
+    sample_merged: true            # 合成結果からスポイトするか
   replace:
     tolerance: 16
   magic_wand:
     tolerance: 16
-    contiguous: true             # false で全域選択（Global Select 相当）
+    contiguous: true               # false で全域選択（Global Select 相当）
   adjustment:
-    hue: 0                       # -180 〜 +180
-    saturation: 0                # -100 〜 +100
-    value: 0                     # -100 〜 +100
-    contrast: 0                  # -100 〜 +100
+    hue: 0                         # -180 〜 +180
+    saturation: 0                  # -100 〜 +100
+    value: 0                       # -100 〜 +100
+    contrast: 0                    # -100 〜 +100
   layers:
-    default_opacity: 100         # 0〜100 (%)
+    default_opacity: 100           # 0〜100 (%)
     max_layers: 64
 
-ui:
-  show_grid: true                # ズーム時にグリッド線を表示
-  grid_min_zoom: 8               # この倍率未満ではグリッド非表示
-  grid_strong_interval: 16       # 太線を引く間隔(px) - 16x16ブロック境界向け
-  grid_max_lines: 1024           # グリッド描画する最大画素数(性能ガード)
-  zoom_min: 0.05
-  zoom_max: 64
-  zoom_step: 1.25                # ホイールズーム係数
-  show_mode_banner: true
-
 export:
-  default_format: "png"          # png | jpeg | webp
-  scales: [1, 2, 4, 8]           # 解像度倍率
-  jpeg_quality: 0.92
-  webp_quality: 0.92
+  default_format: "png"            # png | jpeg | webp
+  scales: [1, 2, 4, 8]             # 解像度倍率
+  jpeg_quality: 92                 # 0〜100（仕様書 2.1 と同じ尺度）
+  jpeg_background: "#ffffff"       # JPEG の透過部分を塗る背景色
+  webp_quality: 92                 # 0〜100
 
 shortcuts:
   save: "Ctrl+S"

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeftRight } from "lucide-react";
 import type { BucketMode } from "../config/configTypes";
 import { useConfig } from "../config/ConfigContext";
+import { checkPixelLimit, maxEdgeLength } from "../config/limits";
 import { useEditor, type ReplaceScope } from "../editor/EditorContext";
 import {
   ADJUST_LIMITS,
@@ -349,7 +350,8 @@ function ResizeOptions() {
   const [w, setW] = useState(docWidth);
   const [h, setH] = useState(docHeight);
   const [error, setError] = useState<string | null>(null);
-  const max = config.canvas.max_size;
+  const maxPixels = config.canvas.max_pixels;
+  const max = maxEdgeLength(maxPixels);
 
   // ドキュメント変更（新規/読み込み/クロップ）に同期
   useEffect(() => {
@@ -364,8 +366,9 @@ function ResizeOptions() {
       setError("1 以上の数値を入力してください");
       return;
     }
-    if (nw > max || nh > max) {
-      setError(`上限は ${max}px です（config: canvas.max_size）`);
+    const limitError = checkPixelLimit(nw, nh, maxPixels);
+    if (limitError) {
+      setError(limitError.replace(/\n/g, " "));
       return;
     }
     setError(null);

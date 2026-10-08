@@ -10,8 +10,10 @@ import {
   type SetStateAction,
 } from "react";
 import { useConfig } from "../config/ConfigContext";
+import { checkPixelLimit } from "../config/limits";
 import { resolveMode, type EditorMode } from "../config/mode";
 import type { BucketMode } from "../config/configTypes";
+import { showErrorDialog } from "../components/notify";
 import {
   canvasToBlob,
   cropLayers,
@@ -38,6 +40,7 @@ import {
   type Layer,
 } from "./layerUtils";
 import { isTypingTarget, matchesShortcut } from "./shortcuts";
+import { MemoryBudget, type MemoryUsage } from "./memoryBudget";
 import type { SelectionState, ToolId, ViewportSize, ViewState } from "./types";
 
 export type ReplaceScope = "selection" | "layer";
@@ -108,6 +111,8 @@ export interface EditorContextValue {
   /** ピクセル変更時の再描画要求カウンタ */
   revision: number;
   bumpRevision: () => void;
+  /** メモリ使用量（仕様書 3 のヘッダー表示 / 2.2 の予算管理） */
+  memoryUsage: MemoryUsage;
 
   // --- 選択（仕様書 4.3） ---
   selection: SelectionState | null;
@@ -237,6 +242,22 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   ]);
   const [activeLayerId, setActiveLayerId] = useState<string>("");
 
+  // --- メモリ予算（仕様書 2.2: 全レイヤー + 選択マスク + 履歴 の合計上限） ---
+  const budget = useMemo(
+    () => new MemoryBudget(config.memory.budget_mb),
+    [config.memory.budget_mb]
+  );
+  const memoryUsage = useMemo(
+    () =>
+      budget.estimate({
+        layerCount: layers.length,
+        width: docWidth,
+        height: docHeight,
+        hasSelection: selection !== null,
+      }),
+    [budget, docHeight, docWidth, layers.length, selection]
+  );
+
   const bumpRevision = useCallback(() => setRevision((r) => r + 1), []);
 
   const setSelection = useCallback((sel: SelectionState | null) => {
@@ -362,16 +383,21 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     });
     setView((v) => ({
       ...v,
-      zoom: clamp(v.zoom, config.ui.zoom_min, config.ui.zoom_max),
+      zoom: clamp(v.zoom, config.canvas.zoom_min, config.canvas.zoom_max),
       showGrid: config.ui.show_grid,
     }));
   }, [config]);
 
   const setDocumentSize = useCallback(
     (w: number, h: number) => {
-      const max = config.canvas.max_size;
-      const nw = clamp(Math.round(w), 1, max);
-      const nh = clamp(Math.round(h), 1, max);
+      const nw = Math.max(1, Math.round(w));
+      const nh = Math.max(1, Math.round(h));
+      // 幅×高さの上限チェック（仕様書 2.2: canvas.max_pixels）
+      const limitError = checkPixelLimit(nw, nh, config.canvas.max_pixels);
+      if (limitError) {
+        showErrorDialog(limitError);
+        return;
+      }
       // 全レイヤーのピクセルをスケール（仕様書 5 リサイズ）
       setLayers((prev) => {
         resizeLayers(prev, nw, nh);
@@ -382,14 +408,27 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       setSelectionState(null);
       bumpRevision();
     },
-    [bumpRevision, config.canvas.max_size]
+    [bumpRevision, config.canvas.max_pixels]
   );
 
   const newDocument = useCallback(
     (w: number, h: number) => {
-      const max = config.canvas.max_size;
-      const nw = clamp(Math.round(w), 1, max);
-      const nh = clamp(Math.round(h), 1, max);
+      const nw = Math.max(1, Math.round(w));
+      const nh = Math.max(1, Math.round(h));
+      const limitError = checkPixelLimit(nw, nh, config.canvas.max_pixels);
+      if (limitError) {
+        showErrorDialog(limitError);
+        return;
+      }
+      // 1レイヤーでも予算超過なら拒否（仕様書 2.2）
+      const mem = budget.canAllocate(
+        { layerCount: 1, width: nw, height: nh, hasSelection: false },
+        0
+      );
+      if (!mem.ok) {
+        showErrorDialog(mem.message);
+        return;
+      }
       setDocWidth(nw);
       setDocHeight(nh);
       setDocName("untitled");
@@ -404,19 +443,30 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       setSelectionState(null); // 新規作成時は選択を解除
       bumpRevision();
     },
-    [config.canvas.background_color, config.canvas.max_size, bumpRevision]
+    [budget, config.canvas.background_color, config.canvas.max_pixels, bumpRevision]
   );
 
   const loadImage = useCallback(
     async (src: string, name: string) => {
       const img = await loadImageElement(src);
-      const max = config.canvas.max_size;
-      const nw = clamp(img.naturalWidth || img.width, 1, max);
-      const nh = clamp(img.naturalHeight || img.height, 1, max);
-      const layer = layerFromImage(img);
-      if (layer.canvas.width !== nw || layer.canvas.height !== nh) {
-        resizeLayers([layer], nw, nh);
+      const nw = img.naturalWidth || img.width;
+      const nh = img.naturalHeight || img.height;
+      // 超える画像は開かない（仕様書 5.2）
+      const limitError = checkPixelLimit(nw, nh, config.canvas.max_pixels);
+      if (limitError) {
+        showErrorDialog(limitError);
+        return;
       }
+      // 1レイヤーでも予算超過なら拒否（仕様書 2.2）
+      const mem = budget.canAllocate(
+        { layerCount: 1, width: nw, height: nh, hasSelection: false },
+        0
+      );
+      if (!mem.ok) {
+        showErrorDialog(mem.message);
+        return;
+      }
+      const layer = layerFromImage(img);
       setDocWidth(nw);
       setDocHeight(nh);
       setDocName(name.replace(/\.[^.]+$/, "") || "untitled");
@@ -425,7 +475,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       setSelectionState(null);
       bumpRevision();
     },
-    [bumpRevision, config.canvas.max_size]
+    [budget, bumpRevision, config.canvas.max_pixels]
   );
 
   const cropDocument = useCallback(
@@ -443,12 +493,18 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       setSelectionState(null);
       bumpRevision();
     },
-    [bumpRevision, config.canvas.max_size, docHeight, docWidth]
+    [bumpRevision, docHeight, docWidth]
   );
 
   const exportImage = useCallback(
     async (format: ExportFormat, scale: number): Promise<string | null> => {
-      const canvas = renderExportCanvas(layers, docWidth, docHeight, scale);
+      const canvas = renderExportCanvas(
+        layers,
+        docWidth,
+        docHeight,
+        scale,
+        format === "jpeg" ? config.export.jpeg_background : undefined
+      );
       const quality = qualityFor(
         format,
         format === "jpeg" ? config.export.jpeg_quality : config.export.webp_quality
@@ -472,13 +528,27 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       downloadBlob(blob, fileName);
       return fileName;
     },
-    [config.export.jpeg_quality, config.export.webp_quality, docHeight, docName, docWidth, layers]
+    [config.export.jpeg_background, config.export.jpeg_quality, config.export.webp_quality, docHeight, docName, docWidth, layers]
   );
 
   // --- レイヤー操作（仕様書 4.5） ---
 
   const addLayer = useCallback(() => {
     if (layers.length >= config.tools.layers.max_layers) return;
+    // メモリ予算チェック（仕様書 2.2: 超過は拒否してメッセージを表示）
+    const check = budget.canAllocate(
+      {
+        layerCount: layers.length + 1,
+        width: docWidth,
+        height: docHeight,
+        hasSelection: selection !== null,
+      },
+      0
+    );
+    if (!check.ok) {
+      showErrorDialog(check.message);
+      return;
+    }
     const index = layers.findIndex((l) => l.id === activeLayerId);
     const insertAt = index >= 0 ? index + 1 : layers.length;
     const layer = createBlankLayer(
@@ -494,18 +564,34 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     bumpRevision();
   }, [
     activeLayerId,
+    budget,
     bumpRevision,
     config.canvas.background_color,
     config.tools.layers.max_layers,
     docHeight,
     docWidth,
     layers,
+    selection,
   ]);
 
   const duplicateLayer = useCallback(
     (id: string) => {
       const index = layers.findIndex((l) => l.id === id);
       if (index < 0) return;
+      // メモリ予算チェック（仕様書 2.2）
+      const check = budget.canAllocate(
+        {
+          layerCount: layers.length + 1,
+          width: docWidth,
+          height: docHeight,
+          hasSelection: selection !== null,
+        },
+        0
+      );
+      if (!check.ok) {
+        showErrorDialog(check.message);
+        return;
+      }
       const source = layers[index];
       const copy = cloneLayer(source, `${source.name} のコピー`);
       const next = [...layers];
@@ -514,7 +600,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       setActiveLayerId(copy.id);
       bumpRevision();
     },
-    [bumpRevision, layers]
+    [budget, bumpRevision, docHeight, docWidth, layers, selection]
   );
 
   const deleteLayer = useCallback(
@@ -588,7 +674,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const setZoom = useCallback(
     (zoom: number, anchor?: { x: number; y: number }) => {
       setView((v) => {
-        const next = clamp(zoom, config.ui.zoom_min, config.ui.zoom_max);
+        const next = clamp(zoom, config.canvas.zoom_min, config.canvas.zoom_max);
         if (next === v.zoom) return v;
         const ax = anchor?.x ?? viewportSize.w / 2;
         const ay = anchor?.y ?? viewportSize.h / 2;
@@ -597,13 +683,13 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         return { ...v, zoom: next, panX: ax - docX * next, panY: ay - docY * next };
       });
     },
-    [config.ui.zoom_max, config.ui.zoom_min, viewportSize.h, viewportSize.w]
+    [config.canvas.zoom_max, config.canvas.zoom_min, viewportSize.h, viewportSize.w]
   );
 
   const zoomBy = useCallback(
     (factor: number, anchor?: { x: number; y: number }) => {
       setView((v) => {
-        const next = clamp(v.zoom * factor, config.ui.zoom_min, config.ui.zoom_max);
+        const next = clamp(v.zoom * factor, config.canvas.zoom_min, config.canvas.zoom_max);
         if (next === v.zoom) return v;
         const ax = anchor?.x ?? viewportSize.w / 2;
         const ay = anchor?.y ?? viewportSize.h / 2;
@@ -612,19 +698,19 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         return { ...v, zoom: next, panX: ax - docX * next, panY: ay - docY * next };
       });
     },
-    [config.ui.zoom_max, config.ui.zoom_min, viewportSize.h, viewportSize.w]
+    [config.canvas.zoom_max, config.canvas.zoom_min, viewportSize.h, viewportSize.w]
   );
 
   const resetZoom = useCallback(() => {
     setView((v) => {
-      const next = clamp(1, config.ui.zoom_min, config.ui.zoom_max);
+      const next = clamp(1, config.canvas.zoom_min, config.canvas.zoom_max);
       const ax = viewportSize.w / 2;
       const ay = viewportSize.h / 2;
       const docX = (ax - v.panX) / v.zoom;
       const docY = (ay - v.panY) / v.zoom;
       return { ...v, zoom: next, panX: ax - docX * next, panY: ay - docY * next };
     });
-  }, [config.ui.zoom_max, config.ui.zoom_min, viewportSize.h, viewportSize.w]);
+  }, [config.canvas.zoom_max, config.canvas.zoom_min, viewportSize.h, viewportSize.w]);
 
   const toggleGrid = useCallback(() => {
     setView((v) => ({ ...v, showGrid: !v.showGrid }));
@@ -756,6 +842,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       zoomBy,
       resetZoom,
       toggleGrid,
+      memoryUsage,
     }),
     [
       docWidth,
@@ -814,6 +901,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       zoomBy,
       resetZoom,
       toggleGrid,
+      memoryUsage,
     ]
   );
 

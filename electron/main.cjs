@@ -10,20 +10,24 @@ const fs = require("fs");
 
 const isDev = !!process.env.VITE_DEV_SERVER_URL;
 
-/** アプリで使う config.yaml の候補パス（優先順） */
-function configCandidates() {
+/** ウィンドウ背景色の安全網（config.yaml の theme.background と同一） */
+const DEFAULT_WINDOW_BACKGROUND = "#1e1e24";
+
+/** 同梱の既定 config.yaml の候補パス（優先順） */
+function bundledConfigCandidates() {
   const paths = [
-    // ユーザーが同梱・編集しやすい場所を優先
-    path.join(app.getAppPath(), "config.yaml"),
+    // インストール版: asar 外でユーザーが編集できる resources/config.yaml
     path.join(process.resourcesPath || "", "config.yaml"),
-    // 開発時は public/config.yaml を参照
+    // Vite ビルド成果物（public/ からコピー済み）
+    path.join(app.getAppPath(), "dist", "config.yaml"),
+    // 開発時
     path.join(app.getAppPath(), "public", "config.yaml"),
   ];
   return paths.filter((p) => p && p !== "config.yaml");
 }
 
-function findConfigPath() {
-  for (const p of configCandidates()) {
+function findBundledConfig() {
+  for (const p of bundledConfigCandidates()) {
     try {
       if (fs.existsSync(p)) return p;
     } catch {
@@ -33,13 +37,56 @@ function findConfigPath() {
   return null;
 }
 
+/**
+ * ユーザー設定の場所（改訂版仕様書 2.1: app.getPath('userData')/config.yaml）。
+ * 存在しない場合は同梱の既定ファイルをコピーして生成する。
+ */
+function ensureUserConfig() {
+  let userPath = null;
+  try {
+    userPath = path.join(app.getPath("userData"), "config.yaml");
+  } catch (err) {
+    console.error("[config] userData の取得失敗:", err);
+    return null;
+  }
+  try {
+    if (!fs.existsSync(userPath)) {
+      const bundled = findBundledConfig();
+      if (!bundled) return null;
+      fs.mkdirSync(path.dirname(userPath), { recursive: true });
+      fs.copyFileSync(bundled, userPath);
+      console.log("[config] 既定の config.yaml を生成:", userPath);
+    }
+    return fs.existsSync(userPath) ? userPath : null;
+  } catch (err) {
+    console.error("[config] config.yaml の生成失敗:", err);
+    return fs.existsSync(userPath) ? userPath : null;
+  }
+}
+
+/** 起動直後のウィンドウ背景色。読み込みは main プロセスで行う（仕様書 2.1）。 */
+function windowBackgroundColor() {
+  try {
+    const p = ensureUserConfig();
+    if (p) {
+      const yaml = require("js-yaml");
+      const doc = yaml.load(fs.readFileSync(p, "utf8"));
+      const bg = doc && doc.theme && doc.theme.background;
+      if (typeof bg === "string" && /^#[0-9a-fA-F]{6}$/.test(bg)) return bg;
+    }
+  } catch (err) {
+    console.error("[config] 背景色の取得失敗:", err);
+  }
+  return DEFAULT_WINDOW_BACKGROUND;
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
     height: 840,
     minWidth: 960,
     minHeight: 600,
-    backgroundColor: "#1b1c22",
+    backgroundColor: windowBackgroundColor(),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -59,7 +106,7 @@ function createWindow() {
 /* ---------------- IPC: config.yaml ---------------- */
 
 ipcMain.handle("config:load", () => {
-  const p = findConfigPath();
+  const p = ensureUserConfig();
   if (!p) return null;
   try {
     return fs.readFileSync(p, "utf8");
@@ -69,7 +116,7 @@ ipcMain.handle("config:load", () => {
   }
 });
 
-ipcMain.handle("config:path", () => findConfigPath());
+ipcMain.handle("config:path", () => ensureUserConfig());
 
 /* ---------------- IPC: ファイル読み込み ---------------- */
 

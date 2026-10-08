@@ -77,7 +77,7 @@ export function renderViewport(p: ViewportRenderParams): void {
 
   // 1. 背景
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = config.theme.colors.background;
+  ctx.fillStyle = config.theme.background;
   ctx.fillRect(0, 0, cw, ch);
 
   // 2. チェッカーボード（キャンバス座標に固定・画面スケール不変）
@@ -108,9 +108,9 @@ export function renderViewport(p: ViewportRenderParams): void {
   // 4. グリッド（zoom_min_zoom 以上 & 行数バジェット内のみ）
   if (
     showGrid &&
-    zoom >= config.ui.grid_min_zoom &&
-    docWidth <= config.ui.grid_max_lines &&
-    docHeight <= config.ui.grid_max_lines
+    zoom >= config.canvas.grid_min_zoom &&
+    docWidth <= config.canvas.grid_max_lines &&
+    docHeight <= config.canvas.grid_max_lines
   ) {
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -120,7 +120,7 @@ export function renderViewport(p: ViewportRenderParams): void {
     const i1 = Math.min(docWidth, Math.ceil((cw - ox) / scale));
     const j0 = Math.max(0, Math.floor(-oy / scale));
     const j1 = Math.min(docHeight, Math.ceil((ch - oy) / scale));
-    const strong = config.ui.grid_strong_interval;
+    const strong = config.canvas.grid_strong_interval;
 
     for (let i = i0; i <= i1; i++) {
       const x = Math.round(ox + i * scale) + lineW / 2;
@@ -181,7 +181,7 @@ export function renderViewport(p: ViewportRenderParams): void {
   // 6. ドキュメント枠線（最外周ピクセルを潰さないよう外側に描画する）
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = config.theme.colors.border;
+  ctx.fillStyle = config.theme.border;
   const t = dpr; // 枠線太さ（デバイスpx）
   ctx.fillRect(ox - t, oy - t, dwPx + 2 * t, t); // 上
   ctx.fillRect(ox - t, oy + dhPx, dwPx + 2 * t, t); // 下
