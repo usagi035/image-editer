@@ -22,6 +22,8 @@ export interface StrokeSession {
   size: number;
   erase: boolean;
   pixelPerfect: boolean;
+  /** 選択マスク（1=描画可）。null で全領域許可。 */
+  mask: Uint8Array | null;
 }
 
 /** 1点を現在のブラシで押印する（サイズ N は N×N の正方形ブラシ） */
@@ -36,6 +38,8 @@ function stamp(s: StrokeSession, cx: number, cy: number): void {
       const x = x0 + dx;
       if (x < 0 || x >= s.width) continue;
       const idx = y * s.width + x;
+      // 選択領域外へのペイントを遮断（仕様書 4.3）
+      if (s.mask && !s.mask[idx]) continue;
       if (!s.touched.has(idx)) s.touched.set(idx, s.pixels[idx]);
       s.pixels[idx] = s.erase ? 0 : s.color;
     }
@@ -106,6 +110,7 @@ export function beginStroke(
     size: number;
     erase: boolean;
     pixelPerfect: boolean;
+    mask?: Uint8Array | null;
   },
   start: DocPoint
 ): StrokeSession | null {
@@ -130,6 +135,7 @@ export function beginStroke(
     size: Math.max(1, Math.round(opts.size)),
     erase: opts.erase,
     pixelPerfect: opts.pixelPerfect && opts.size === 1,
+    mask: opts.mask ?? null,
   };
   stamp(s, start.x, start.y);
   flushStroke(s);

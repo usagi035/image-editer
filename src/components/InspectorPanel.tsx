@@ -1,10 +1,13 @@
 import { ArrowLeftRight } from "lucide-react";
 import type { BucketMode } from "../config/configTypes";
 import { useConfig } from "../config/ConfigContext";
-import { useEditor } from "../editor/EditorContext";
+import { useEditor, type ReplaceScope } from "../editor/EditorContext";
+import { replaceColorInLayer } from "../editor/bucketTools";
+import { hexToUint32 } from "../editor/colorUtils";
+import { buildSelectionMask } from "../editor/selectionTools";
 import type { ToolId } from "../editor/types";
 import LayersPanel from "./LayersPanel";
-import { Hint, SectionTitle, SliderRow, ToggleRow } from "./ui";
+import { Hint, IconButton, SectionTitle, SliderRow, ToggleRow } from "./ui";
 
 /* ---------------- カラーセクション ---------------- */
 
@@ -75,6 +78,168 @@ function ColorSection() {
         </button>
       </div>
     </section>
+  );
+}
+
+/* ---------------- 範囲選択オプション（仕様書 4.3） ---------------- */
+
+function RectSelectOptions() {
+  const { selection, clearSelection } = useEditor();
+  return (
+    <div className="flex flex-col gap-2">
+      <Hint text="ドラッグで矩形選択（クリックで1px）。選択外への描画・塗りは遮断されます" />
+      {selection && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-mono-nums text-app-muted" style={{ fontSize: "0.85em" }}>
+            {selection.w}×{selection.h} @ ({selection.x},{selection.y})
+          </span>
+          <IconButton title="選択解除 (Esc)" onClick={clearSelection}>
+            解除
+          </IconButton>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MagicWandOptions() {
+  const { wand, setWandTolerance, setWandContiguous, selection, clearSelection } =
+    useEditor();
+  return (
+    <div className="flex flex-col gap-2">
+      <Hint text="クリックした色の領域を選択します（選択外への描画は遮断）" />
+      <SliderRow
+        label="許容値"
+        value={wand.tolerance}
+        min={0}
+        max={255}
+        onChange={setWandTolerance}
+      />
+      <ToggleRow
+        label="連続領域のみ（OFF で全域選択）"
+        checked={wand.contiguous}
+        onChange={setWandContiguous}
+      />
+      {selection && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-mono-nums text-app-muted" style={{ fontSize: "0.85em" }}>
+            {selection.w}×{selection.h} 選択中
+          </span>
+          <IconButton title="選択解除 (Esc)" onClick={clearSelection}>
+            解除
+          </IconButton>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- 色置換（仕様書 4.3） ---------------- */
+
+function ColorReplaceOptions() {
+  const {
+    replace,
+    setReplaceFrom,
+    setReplaceTo,
+    setReplaceTolerance,
+    setReplaceScope,
+    selection,
+    layers,
+    activeLayerId,
+    bumpRevision,
+    primaryColor,
+    secondaryColor,
+  } = useEditor();
+  const active = layers.find((l) => l.id === activeLayerId);
+  const needSelection = replace.scope === "selection";
+  const canRun = !!active && (!needSelection || !!selection);
+
+  const run = () => {
+    if (!active) return;
+    const mask = needSelection
+      ? buildSelectionMask(selection, active.canvas.width, active.canvas.height)
+      : null;
+    replaceColorInLayer(
+      active,
+      hexToUint32(replace.from),
+      hexToUint32(replace.to),
+      replace.tolerance,
+      mask
+    );
+    bumpRevision();
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Hint text="キャンバスをクリックすると置換元 A の色を取得します" />
+      <ColorField label="A" value={replace.from} onChange={setReplaceFrom} />
+      <ColorField label="B" value={replace.to} onChange={setReplaceTo} />
+      <div className="flex gap-1">
+        <button
+          className="flex-1 rounded py-1"
+          style={{
+            background: "var(--color-panel-alt)",
+            border: "1px solid var(--color-border)",
+          }}
+          onClick={() => {
+            setReplaceFrom(replace.to);
+            setReplaceTo(replace.from);
+          }}
+          title="A と B を入れ替え"
+        >
+          入れ替え
+        </button>
+        <button
+          className="flex-1 rounded py-1"
+          style={{
+            background: "var(--color-panel-alt)",
+            border: "1px solid var(--color-border)",
+          }}
+          onClick={() => {
+            setReplaceFrom(primaryColor);
+            setReplaceTo(secondaryColor);
+          }}
+          title="A=主色 / B=副色 に設定"
+        >
+          カラーから設定
+        </button>
+      </div>
+      <SliderRow
+        label="許容値"
+        value={replace.tolerance}
+        min={0}
+        max={255}
+        onChange={setReplaceTolerance}
+      />
+      <label className="flex items-center gap-2">
+        <span className="w-16 shrink-0 text-app-muted">範囲</span>
+        <select
+          value={replace.scope}
+          onChange={(e) => setReplaceScope(e.target.value as ReplaceScope)}
+          className="min-w-0 flex-1 rounded px-2 py-1"
+          style={{
+            background: "var(--color-panel-alt)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <option value="layer">レイヤー全体</option>
+          <option value="selection" disabled={!selection}>
+            選択範囲{selection ? "" : "（未選択）"}
+          </option>
+        </select>
+      </label>
+      <button
+        className="rounded py-1 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+        style={{ background: "var(--color-accent)" }}
+        disabled={!canRun}
+        onClick={run}
+      >
+        A → B に置換実行
+      </button>
+      {needSelection && !selection && (
+        <Hint text="選択範囲がありません（魔術の杖/矩形選択で指定してください）" />
+      )}
+    </div>
   );
 }
 
@@ -187,11 +352,11 @@ function ToolOptionsSection() {
           />
         );
       case "colorReplace":
-        return <Hint text="置換元の色をクリックすると専用ダイアログを開きます" />;
+        return <ColorReplaceOptions />;
       case "rectSelect":
-        return <Hint text="ドラッグで矩形選択。選択外への描画は遮断されます" />;
+        return <RectSelectOptions />;
       case "magicWand":
-        return <Hint text="クリックした連続同色領域を選択します" />;
+        return <MagicWandOptions />;
       case "crop":
         return <Hint text="ドラッグで切り出し範囲を指定します" />;
       case "resize":

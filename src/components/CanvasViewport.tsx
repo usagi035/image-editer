@@ -12,6 +12,11 @@ import {
   type StrokeSession,
 } from "../editor/drawTools";
 import { isTypingTarget, matchesShortcut } from "../editor/shortcuts";
+import {
+  buildSelectionMask,
+  createRectSelection,
+  createWandSelection,
+} from "../editor/selectionTools";
 import { renderViewport } from "../editor/viewportRenderer";
 import { viewToDoc, type DocPoint } from "../editor/types";
 
@@ -42,12 +47,17 @@ export default function CanvasViewport() {
     mode,
     activeLayerId,
     bumpRevision,
+    selection,
+    setSelection,
+    wand,
+    setReplaceFrom,
   } = useEditor();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const compositeRef = useRef<import("../editor/compositor").CompositeCache | null>(null);
   const strokeRef = useRef<StrokeSession | null>(null);
+  const selectRef = useRef<DocPoint | null>(null);
   const spaceRef = useRef(false);
   const panRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(
     null
@@ -93,6 +103,7 @@ export default function CanvasViewport() {
       docHeight,
       view,
       config,
+      selection,
       composite: (docCtx) => {
         compositeRef.current = getComposite(
           compositeRef.current,
@@ -104,7 +115,7 @@ export default function CanvasViewport() {
         docCtx.drawImage(compositeRef.current.canvas, 0, 0);
       },
     });
-  }, [size, view, docWidth, docHeight, config, layers, revision]);
+  }, [size, view, docWidth, docHeight, config, layers, revision, selection]);
 
   // --- ホイールズーム（preventDefault のため非 passive で購読） ---
   useEffect(() => {
@@ -174,6 +185,8 @@ export default function CanvasViewport() {
           size: erase ? eraserSize : pen.size,
           erase,
           pixelPerfect: pen.pixelPerfect,
+          // 選択領域外へのペイントを遮断（仕様書 4.3）
+          mask: buildSelectionMask(selection, docWidth, docHeight),
         },
         docPointFromEvent(e)
       );
@@ -185,12 +198,15 @@ export default function CanvasViewport() {
     [
       activeLayerId,
       bumpRevision,
+      docHeight,
       docPointFromEvent,
+      docWidth,
       eraserSize,
       layers,
       pen.pixelPerfect,
       pen.size,
       primaryColor,
+      selection,
       tool,
     ]
   );
@@ -271,7 +287,7 @@ export default function CanvasViewport() {
       } else if (tool === "eyedropper") {
         sampleColor(e);
       } else if (tool === "bucket") {
-        // 特殊バケツ（Uint32Array メモリ直接操作）
+        // 特殊バケツ（Uint32Array メモリ直接操作・選択範囲で遮断）
         const layer = layers.find((l) => l.id === activeLayerId);
         const p = docPointFromEvent(e);
         if (!layer) return;
@@ -286,16 +302,64 @@ export default function CanvasViewport() {
             jitter: bucket.jitter,
             ditherCell: config.tools.bucket.dither_pattern_size,
           },
-          p
+          p,
+          buildSelectionMask(selection, docWidth, docHeight)
         );
         bumpRevision();
+      } else if (tool === "rectSelect") {
+        // 矩形選択: ドラッグで範囲指定（クリックは1px選択）
+        e.currentTarget.setPointerCapture(e.pointerId);
+        selectRef.current = docPointFromEvent(e);
+        setSelection(
+          createRectSelection(
+            selectRef.current.x,
+            selectRef.current.y,
+            selectRef.current.x,
+            selectRef.current.y,
+            docWidth,
+            docHeight
+          )
+        );
+      } else if (tool === "magicWand") {
+        // 魔術の杖: クリック点の同色領域を選択
+        const layer = layers.find((l) => l.id === activeLayerId);
+        const p = docPointFromEvent(e);
+        if (!layer) return;
+        const ctx = layer.canvas.getContext("2d", { willReadFrequently: true });
+        if (!ctx) return;
+        const img = ctx.getImageData(0, 0, docWidth, docHeight);
+        const pixels = new Uint32Array(img.data.buffer);
+        setSelection(
+          createWandSelection(
+            pixels,
+            docWidth,
+            docHeight,
+            p.x,
+            p.y,
+            wand.tolerance,
+            wand.contiguous,
+            config.canvas.selection_color
+          )
+        );
+      } else if (tool === "colorReplace") {
+        // 色置換: クリックした色を「置換元」として設定
+        const layer = layers.find((l) => l.id === activeLayerId);
+        const p = docPointFromEvent(e);
+        if (!layer) return;
+        if (p.x < 0 || p.x >= docWidth || p.y < 0 || p.y >= docHeight) return;
+        const ctx = layer.canvas.getContext("2d", { willReadFrequently: true });
+        if (!ctx) return;
+        const d = ctx.getImageData(p.x, p.y, 1, 1).data;
+        const px = ((d[3] << 24) | (d[2] << 16) | (d[1] << 8) | d[0]) >>> 0;
+        setReplaceFrom(uint32ToHex(px));
       }
-      // colorReplace / 選択 / crop 等は各機能単位で実装
+      // crop / resize / hsv 等は各機能単位で実装
     },
     [
       activeLayerId,
       bucket,
       bumpRevision,
+      config.canvas.selection_color,
       config.tools.bucket.dither_pattern_size,
       docHeight,
       docPointFromEvent,
@@ -304,10 +368,14 @@ export default function CanvasViewport() {
       mode,
       primaryColor,
       secondaryColor,
+      selection,
+      setReplaceFrom,
+      setSelection,
       startPan,
       startStroke,
       sampleColor,
       tool,
+      wand,
     ]
   );
 
@@ -320,13 +388,29 @@ export default function CanvasViewport() {
         setView((v) => ({ ...v, panX: p.panX + dx, panY: p.panY + dy }));
         return;
       }
+      // 矩形選択のドラッグ追従
+      const anchor = selectRef.current;
+      if (anchor) {
+        const cur = docPointFromEvent(e);
+        setSelection(
+          createRectSelection(
+            anchor.x,
+            anchor.y,
+            cur.x,
+            cur.y,
+            docWidth,
+            docHeight
+          )
+        );
+        return;
+      }
       const session = strokeRef.current;
       if (session) {
         continueStroke(session, docPointFromEvent(e));
         bumpRevision();
       }
     },
-    [bumpRevision, docPointFromEvent, setView]
+    [bumpRevision, docHeight, docPointFromEvent, docWidth, setSelection, setView]
   );
 
   const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -334,6 +418,7 @@ export default function CanvasViewport() {
       panRef.current = null;
       setPanning(false);
     }
+    selectRef.current = null;
     const session = strokeRef.current;
     if (session) {
       endStroke(session);

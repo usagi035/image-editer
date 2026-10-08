@@ -153,3 +153,34 @@ export function applyBucketToLayer(
   ctx.putImageData(imageData, 0, 0);
   return true;
 }
+
+/**
+ * 色置換（仕様書 4.3）: 指定色A を 指定色B へ置換する。
+ * mask（選択範囲）で遮断可能。レイヤー全体への置換は mask=null で実行。
+ */
+export function replaceColorInLayer(
+  layer: Layer,
+  from: number,
+  to: number,
+  tolerance: number,
+  mask?: Uint8Array | null
+): boolean {
+  const ctx = layer.canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return false;
+  const width = layer.canvas.width;
+  const height = layer.canvas.height;
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const pixels = new Uint32Array(imageData.data.buffer);
+  const fr = getR(from);
+  const fg = getG(from);
+  const fb = getB(from);
+  const fa = getA(from);
+  for (let i = 0; i < pixels.length; i++) {
+    if (mask && !mask[i]) continue;
+    if (matches(pixels[i], fr, fg, fb, fa, tolerance)) {
+      pixels[i] = to;
+    }
+  }
+  ctx.putImageData(imageData, 0, 0);
+  return true;
+}
