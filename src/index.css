@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+/* config.yaml から注入される CSS 変数（ThemeConfig） */
+:root {
+  --color-background: #1b1c22;
+  --color-panel: #24262e;
+  --color-panel-alt: #2c2f39;
+  --color-border: #3a3e4b;
+  --color-accent: #5b8cff;
+  --color-accent-hover: #7aa3ff;
+  --color-text: #e7e9f0;
+  --color-text-muted: #99a0b5;
+  --color-danger: #ff5f6d;
+  --color-header: #17181e;
+  --font-family-ui: "Segoe UI", sans-serif;
+  --font-size-base: 13px;
+  --font-family-mono: monospace;
+  --control-radius: 4px;
+  --checker-a: #3a3e4b;
+  --checker-b: #2b2e38;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-text);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-base);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* Tailwind v4 にカスタムトークンを登録（theme は config.yaml 準拠値） */
+@theme {
+  --color-app-background: var(--color-background);
+  --color-app-panel: var(--color-panel);
+  --color-app-panel-alt: var(--color-panel-alt);
+  --color-app-border: var(--color-border);
+  --color-app-accent: var(--color-accent);
+  --color-app-accent-hover: var(--color-accent-hover);
+  --color-app-text: var(--color-text);
+  --color-app-muted: var(--color-text-muted);
+  --color-app-danger: var(--color-danger);
+  --color-app-header: var(--color-header);
+  --font-app: var(--font-family-ui);
+}
+
+/* 数値表示用等幅 */
+.font-mono-nums {
+  font-family: var(--font-family-mono);
+}
+
+/* 汎用スクロールバー */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}

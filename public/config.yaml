@@ -1,0 +1,93 @@
+# ============================================================
+# config.yaml - アプリケーション設定（UI/エンジン一元管理）
+# 色・フォント・閾値などのハードコードは禁止され、全てここから参照する。
+# ============================================================
+
+app:
+  name: "Image Editor"
+  version: "0.1.0"
+
+theme:
+  colors:
+    background: "#1b1c22"        # メイン背景色
+    panel: "#24262e"             # パネル色
+    panel_alt: "#2c2f39"         # パネル補助色（入力欄など）
+    border: "#3a3e4b"            # 枠線色
+    accent: "#5b8cff"            # アクセント色
+    accent_hover: "#7aa3ff"      # アクセント hover
+    text: "#e7e9f0"              # 基本文字色
+    text_muted: "#99a0b5"        # 補助文字色
+    danger: "#ff5f6d"            # 危険操作色
+    header: "#17181e"            # ヘッダー色
+  font:
+    family: "'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif"
+    base_size: "13px"
+    mono_family: "'Consolas', 'Menlo', monospace"
+  radius: "4px"                  # コントロール角丸
+  density: "compact"             # compact | cozy
+
+canvas:
+  full_feature_threshold: 512    # この値以下で Pixel Art Mode（仕様書 2.2）
+  max_size: 5000                 # 最大読み込み/作成サイズ（END-GOAL: 5000x5000）
+  default_width: 32              # 新規作成時のデフォルト寸法
+  default_height: 32
+  grid_line_color: "rgba(255,255,255,0.07)"
+  grid_line_color_strong: "rgba(255,255,255,0.16)"
+  selection_color: "#5b8cff"
+  checkerboard_color_a: "#3a3e4b"
+  checkerboard_color_b: "#2b2e38"
+  background_color: "#00000000"  # 新規キャンバス初期色（RGBA）
+
+tools:
+  pen:
+    size: 1
+    pixel_perfect: true          # Pixel-Perfect 切り替え初期値
+    default_color: "#000000ff"
+  eraser:
+    size: 1
+  bucket:
+    mode: "flood"                # flood | global | noise | dither | eraser
+    tolerance: 16                # 許容値 0〜255
+    jitter: 30                   # ノイズ強度 0〜100 (%)
+    dither_primary: "#000000ff"
+    dither_secondary: "#ffffffff"
+    dither_pattern_size: 2       # ディザ柄のセルサイズ(px)
+  eyedropper:
+    sample_merged: true          # 合成結果からスポイトするか
+  replace:
+    tolerance: 16
+  magic_wand:
+    tolerance: 16
+    contiguous: true             # false で全域選択（Global Select 相当）
+  adjustment:
+    hue: 0                       # -180 〜 +180
+    saturation: 0                # -100 〜 +100
+    value: 0                     # -100 〜 +100
+    contrast: 0                  # -100 〜 +100
+  layers:
+    default_opacity: 100         # 0〜100 (%)
+    max_layers: 64
+
+ui:
+  show_grid: true                # ズーム時にグリッド線を表示
+  grid_min_zoom: 8               # この倍率未満ではグリッド非表示
+  zoom_min: 0.05
+  zoom_max: 64
+  zoom_step: 1.25                # ホイールズーム係数
+  show_mode_banner: true
+
+export:
+  default_format: "png"          # png | jpeg | webp
+  scales: [1, 2, 4, 8]           # 解像度倍率
+  jpeg_quality: 0.92
+  webp_quality: 0.92
+
+shortcuts:
+  save: "Ctrl+S"
+  undo: "Ctrl+Z"
+  redo: "Ctrl+Y"
+  zoom_in: "Ctrl+Plus"
+  zoom_out: "Ctrl+Minus"
+  zoom_reset: "Ctrl+0"
+  toggle_grid: "G"
+  pan: "Space"
