@@ -37,8 +37,6 @@ export interface CanvasConfig {
   /** ズーム範囲（1倍未満は 1/16, 1/8, 1/4, 1/2） */
   zoom_min: number;
   zoom_max: number;
-  /** 【廃止予定】モード切替閾値（改訂版 2.2 でモード分け廃止、MS1 途中で削除） */
-  full_feature_threshold: number;
   grid_line_color: string;
   grid_line_color_strong: string;
   selection_color: string;
@@ -83,7 +81,6 @@ export interface ToolsConfig {
 export interface UiConfig {
   show_grid: boolean;
   zoom_step: number;
-  show_mode_banner: boolean;
 }
 
 export interface ExportConfig {

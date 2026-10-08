@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useConfig } from "../config/ConfigContext";
-import { isPaintToolAllowed } from "../config/mode";
 import { useEditor } from "../editor/EditorContext";
 import {
   getAdjustPreview,
@@ -49,7 +48,6 @@ export default function CanvasViewport() {
     primaryColor,
     secondaryColor,
     setPrimaryColor,
-    mode,
     activeLayerId,
     bumpRevision,
     selection,
@@ -140,11 +138,9 @@ export default function CanvasViewport() {
             params: adjust,
             scope: adjustScope,
             selection,
-            utility: mode === "utility",
             width: docWidth,
             height: docHeight,
             revision,
-            previewThreshold: config.canvas.full_feature_threshold,
           });
           docCtx.drawImage(adjustPreviewRef.current.canvas, 0, 0, docWidth, docHeight);
           return;
@@ -172,7 +168,6 @@ export default function CanvasViewport() {
     adjust,
     adjustScope,
     activeLayerId,
-    mode,
   ]);
 
   // --- ホイールズーム（preventDefault のため非 passive で購読） ---
@@ -336,8 +331,6 @@ export default function CanvasViewport() {
         return;
       }
       if (e.button !== 0) return;
-      // Utility Mode では描画系ツールを受け付けない（仕様書 2.2）
-      if (!isPaintToolAllowed(tool, mode)) return;
 
       if (tool === "pen" || tool === "eraser") {
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -423,7 +416,6 @@ export default function CanvasViewport() {
       docPointFromEvent,
       docWidth,
       layers,
-      mode,
       primaryColor,
       secondaryColor,
       selection,

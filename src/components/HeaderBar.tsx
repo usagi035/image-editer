@@ -9,7 +9,6 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { useConfig } from "../config/ConfigContext";
-import { MODE_LABEL } from "../config/mode";
 import { useEditor } from "../editor/EditorContext";
 import type { ExportFormat } from "../editor/ioTools";
 import { formatUsage, usagePercent } from "../editor/memoryBudget";
@@ -56,12 +55,11 @@ function HeaderButton({
 
 /**
  * ヘッダー / メニューバー（仕様書 3. Header）
- * ファイル操作・ズーム率表示・モードバナー
+ * ファイル操作・ズーム率表示・メモリ使用量
  */
 export default function HeaderBar() {
   const { config, source, reload } = useConfig();
   const {
-    mode,
     docWidth,
     docHeight,
     view,
@@ -123,7 +121,6 @@ export default function HeaderBar() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [config.export.default_format, config.export.scales, config.shortcuts.save, exportImage]);
 
-  const isPixel = mode === "pixel";
   const accent = config.theme.accent;
   const muted = config.theme.text_muted;
 
@@ -164,25 +161,8 @@ export default function HeaderBar() {
         <RefreshCw size={15} />
       </HeaderButton>
 
-      {/* 中央: モードバナー */}
+      {/* 中央: ドキュメント情報 */}
       <div className="flex flex-1 items-center justify-center gap-2">
-        {config.ui.show_mode_banner && (
-          <span
-            className="rounded px-2 py-0.5 font-semibold"
-            style={{
-              background: isPixel ? accent : "var(--color-panel-alt)",
-              color: isPixel ? "#ffffff" : muted,
-              border: `1px solid ${isPixel ? accent : "var(--color-border)"}`,
-            }}
-            title={
-              isPixel
-                ? `全ツール利用可（<= ${config.canvas.full_feature_threshold}px）`
-                : `描画ツール無効・ユーティリティのみ（> ${config.canvas.full_feature_threshold}px）`
-            }
-          >
-            {MODE_LABEL[mode]}
-          </span>
-        )}
         <span className="text-app-muted font-mono-nums">
           {docWidth}×{docHeight}
         </span>

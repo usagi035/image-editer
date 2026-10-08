@@ -11,9 +11,7 @@ import {
   SquareDashed,
   Wand,
 } from "lucide-react";
-import { isPaintToolAllowed, MODE_LABEL } from "../config/mode";
 import { useEditor } from "../editor/EditorContext";
-import { useEffect } from "react";
 import type { ToolId } from "../editor/types";
 
 interface ToolDef {
@@ -34,7 +32,7 @@ const TOOLS: ToolDef[] = [
   { id: "rectSelect", icon: SquareDashed, label: "矩形選択", group: 2 },
   { id: "magicWand", icon: Wand, label: "魔術の杖", group: 2 },
   { id: "crop", icon: Crop, label: "トリミング", group: 2 },
-  // 3: ユーティリティ（Utility Mode でも利用可）
+  // 3: ユーティリティ（リサイズ・色調整）
   { id: "resize", icon: Scaling, label: "リサイズ", group: 3 },
   { id: "hsv", icon: Contrast, label: "色調整", group: 3 },
 ];
@@ -42,12 +40,10 @@ const TOOLS: ToolDef[] = [
 function ToolButton({
   def,
   active,
-  disabled,
   onSelect,
 }: {
   def: ToolDef;
   active: boolean;
-  disabled: boolean;
   onSelect: () => void;
 }) {
   const Icon = def.icon;
@@ -60,11 +56,9 @@ function ToolButton({
         border: active
           ? "1px solid var(--color-accent-hover)"
           : "1px solid transparent",
-        opacity: disabled ? 0.35 : 1,
-        cursor: disabled ? "not-allowed" : "pointer",
+        cursor: "pointer",
       }}
-      disabled={disabled}
-      title={disabled ? `${def.label}（Utility Mode で無効）` : def.label}
+      title={def.label}
       onClick={onSelect}
     >
       <Icon size={17} />
@@ -75,15 +69,10 @@ function ToolButton({
 
 /**
  * 左パネル（ツールボックス）- 仕様書 3. Left Panel
- * Utility Mode では描画系ツールを無効化する（仕様書 2.2）。
+ * モード分けは廃止（改訂版仕様書 2.2）: 全サイズで全ツールを利用できる。
  */
 export default function Toolbox() {
-  const { tool, setTool, mode } = useEditor();
-
-  // Utility Mode で無効化されたツールが選択されたままの場合は自動切替
-  useEffect(() => {
-    if (!isPaintToolAllowed(tool, mode)) setTool("crop");
-  }, [tool, mode, setTool]);
+  const { tool, setTool } = useEditor();
 
   const groups: ToolDef["group"][] = [1, 2, 3];
 
@@ -98,18 +87,14 @@ export default function Toolbox() {
       {groups.map((g) => (
         <div key={g} className="contents">
           <div className="flex flex-col items-center gap-0.5">
-            {TOOLS.filter((t) => t.group === g).map((def) => {
-              const allowed = isPaintToolAllowed(def.id, mode);
-              return (
-                <ToolButton
-                  key={def.id}
-                  def={def}
-                  active={tool === def.id}
-                  disabled={!allowed}
-                  onSelect={() => setTool(def.id)}
-                />
-              );
-            })}
+            {TOOLS.filter((t) => t.group === g).map((def) => (
+              <ToolButton
+                key={def.id}
+                def={def}
+                active={tool === def.id}
+                onSelect={() => setTool(def.id)}
+              />
+            ))}
           </div>
           {g < 3 && (
             <div
@@ -119,9 +104,6 @@ export default function Toolbox() {
           )}
         </div>
       ))}
-      <div className="mt-auto px-1 text-center text-app-muted" style={{ fontSize: "0.65em" }}>
-        {MODE_LABEL[mode]}
-      </div>
     </aside>
   );
 }

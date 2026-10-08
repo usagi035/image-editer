@@ -33,7 +33,6 @@ export const DEFAULT_CONFIG: AppConfig = {
     grid_max_lines: 1024,
     zoom_min: 0.0625, // 1/16
     zoom_max: 64,
-    full_feature_threshold: 512, // 廃止予定（改訂版 2.2）
     grid_line_color: "rgba(255,255,255,0.07)",
     grid_line_color_strong: "rgba(255,255,255,0.16)",
     selection_color: "#4f8cff",
@@ -64,7 +63,6 @@ export const DEFAULT_CONFIG: AppConfig = {
   ui: {
     show_grid: true,
     zoom_step: 1.25,
-    show_mode_banner: true,
   },
   export: {
     default_format: "png",
