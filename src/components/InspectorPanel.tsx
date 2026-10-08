@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { ArrowLeftRight } from "lucide-react";
 import type { BucketMode } from "../config/configTypes";
 import { useConfig } from "../config/ConfigContext";
@@ -340,6 +341,127 @@ function HsvOptions() {
   );
 }
 
+/* ---------------- リサイズ / クロップ（仕様書 5） ---------------- */
+
+function ResizeOptions() {
+  const { docWidth, docHeight, setDocumentSize, mode } = useEditor();
+  const { config } = useConfig();
+  const [w, setW] = useState(docWidth);
+  const [h, setH] = useState(docHeight);
+  const [error, setError] = useState<string | null>(null);
+  const max = config.canvas.max_size;
+
+  // ドキュメント変更（新規/読み込み/クロップ）に同期
+  useEffect(() => {
+    setW(docWidth);
+    setH(docHeight);
+  }, [docWidth, docHeight]);
+
+  const submit = () => {
+    const nw = Math.round(Number(w));
+    const nh = Math.round(Number(h));
+    if (!Number.isFinite(nw) || !Number.isFinite(nh) || nw < 1 || nh < 1) {
+      setError("1 以上の数値を入力してください");
+      return;
+    }
+    if (nw > max || nh > max) {
+      setError(`上限は ${max}px です（config: canvas.max_size）`);
+      return;
+    }
+    setError(null);
+    setDocumentSize(nw, nh);
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Hint
+        text={
+          mode === "utility"
+            ? "Utility Mode: リサイズは全レイヤーへ適用されます"
+            : "全レイヤーのピクセルをスケールします（拡大はニアレスト）"
+        }
+      />
+      <div className="flex items-center gap-2">
+        <span className="w-6 text-app-muted">幅</span>
+        <input
+          id="rs-w"
+          type="number"
+          min={1}
+          max={max}
+          value={w}
+          onChange={(e) => setW(Number(e.target.value))}
+          className="w-full rounded px-2 py-1 font-mono-nums"
+          style={{
+            background: "var(--color-panel-alt)",
+            border: "1px solid var(--color-border)",
+          }}
+        />
+        <span className="text-app-muted">px</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="w-6 text-app-muted">高</span>
+        <input
+          id="rs-h"
+          type="number"
+          min={1}
+          max={max}
+          value={h}
+          onChange={(e) => setH(Number(e.target.value))}
+          className="w-full rounded px-2 py-1 font-mono-nums"
+          style={{
+            background: "var(--color-panel-alt)",
+            border: "1px solid var(--color-border)",
+          }}
+        />
+        <span className="text-app-muted">px</span>
+      </div>
+      {error && (
+        <p style={{ color: "var(--color-danger)", fontSize: "0.85em" }}>{error}</p>
+      )}
+      <button
+        className="rounded py-1 font-semibold text-white"
+        style={{ background: "var(--color-accent)" }}
+        onClick={submit}
+      >
+        リサイズ実行
+      </button>
+    </div>
+  );
+}
+
+function CropOptions() {
+  const { selection, clearSelection, cropDocument, docWidth, docHeight } = useEditor();
+  const canCrop =
+    !!selection && selection.w > 0 && selection.h > 0 &&
+    !(selection.x === 0 && selection.y === 0 && selection.w === docWidth && selection.h === docHeight);
+  return (
+    <div className="flex flex-col gap-2">
+      <Hint text="ドラッグで切り出し範囲を指定します（矩形選択と同一操作）" />
+      {selection && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-mono-nums text-app-muted" style={{ fontSize: "0.85em" }}>
+            {selection.w}×{selection.h} @ ({selection.x},{selection.y})
+          </span>
+          <IconButton title="選択解除 (Esc)" onClick={clearSelection}>
+            解除
+          </IconButton>
+        </div>
+      )}
+      <button
+        className="rounded py-1 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+        style={{ background: "var(--color-accent)" }}
+        disabled={!canCrop}
+        onClick={() =>
+          selection && cropDocument(selection.x, selection.y, selection.w, selection.h)
+        }
+      >
+        この範囲で切り抜き
+      </button>
+      {!selection && <Hint text="範囲をドラッグしてから切り抜きを実行してください" />}
+    </div>
+  );
+}
+
 /* ---------------- ツールオプション ---------------- */
 
 function ToolOptionsSection() {
@@ -455,9 +577,9 @@ function ToolOptionsSection() {
       case "magicWand":
         return <MagicWandOptions />;
       case "crop":
-        return <Hint text="ドラッグで切り出し範囲を指定します" />;
+        return <CropOptions />;
       case "resize":
-        return <Hint text="幅・高さを指定してドキュメント全体をリサイズします" />;
+        return <ResizeOptions />;
       case "hsv":
         return <HsvOptions />;
       default:

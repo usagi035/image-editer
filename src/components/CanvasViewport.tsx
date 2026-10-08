@@ -58,6 +58,7 @@ export default function CanvasViewport() {
     setReplaceFrom,
     adjust,
     adjustScope,
+    loadImage,
   } = useEditor();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -73,6 +74,23 @@ export default function CanvasViewport() {
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [panning, setPanning] = useState(false);
+  const [dropActive, setDropActive] = useState(false);
+
+  // --- ドラッグ＆ドロップ読み込み（仕様書 5） ---
+  const onDrop = useCallback(
+    async (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      setDropActive(false);
+      const file = e.dataTransfer.files?.[0];
+      if (!file || !file.type.startsWith("image/")) return;
+      try {
+        await loadImage(URL.createObjectURL(file), file.name);
+      } catch (err) {
+        console.error(err);
+      }
+    },
+    [loadImage]
+  );
 
   // --- サイズ追従（ResizeObserver） ---
   useEffect(() => {
@@ -346,8 +364,8 @@ export default function CanvasViewport() {
           buildSelectionMask(selection, docWidth, docHeight)
         );
         bumpRevision();
-      } else if (tool === "rectSelect") {
-        // 矩形選択: ドラッグで範囲指定（クリックは1px選択）
+      } else if (tool === "rectSelect" || tool === "crop") {
+        // 矩形選択 / クロップ範囲指定: ドラッグで範囲指定（クリックは1px選択）
         e.currentTarget.setPointerCapture(e.pointerId);
         selectRef.current = docPointFromEvent(e);
         setSelection(
@@ -480,8 +498,25 @@ export default function CanvasViewport() {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDropActive(true);
+      }}
+      onDragLeave={() => setDropActive(false)}
+      onDrop={(e) => void onDrop(e)}
     >
       <canvas ref={canvasRef} className="absolute left-0 top-0" />
+      {dropActive && (
+        <div
+          className="pointer-events-none absolute inset-0 flex items-center justify-center"
+          style={{
+            border: `2px dashed ${config.theme.colors.accent}`,
+            background: "rgba(0,0,0,0.35)",
+          }}
+        >
+          <span className="font-semibold">画像をドロップして読み込み</span>
+        </div>
+      )}
     </div>
   );
 }
