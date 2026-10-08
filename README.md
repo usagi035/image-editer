@@ -130,7 +130,7 @@ public/
 
 ## 開発ルール
 
-開発は [AI-rule.md](./AI-rule.md) に準拠します。
+開発は [AI-rule.md](./AI-Docs/AI-rule.md) に準拠します。
 
 - **ブランチ**: GitHub Flow（`main` は常に動作可能な安定版、機能は `feature/<機能名>`）
 - **コミット**: Conventional Commits（`feat:` / `fix:` / `refactor:` / `style:` / `docs:` / `config:`）
@@ -139,6 +139,8 @@ public/
 
 ## 参照ドキュメント
 
-- [仕様書.md](./仕様書.md) — システム & 機能スペック
-- [AI-rule.md](./AI-rule.md) — AI コーディング & Git ワークフロー
-- [END-GOAL.md](./END-GOAL.md) — 最終ビジョン & 完成基準
+> `AI-Docs/` は `.gitignore` 対象（リポジトリには含まれません）。
+
+- [仕様書.md](./AI-Docs/仕様書.md) — システム & 機能スペック
+- [AI-rule.md](./AI-Docs/AI-rule.md) — AI コーディング & Git ワークフロー
+- [END-GOAL.md](./AI-Docs/END-GOAL.md) — 最終ビジョン & 完成基準
