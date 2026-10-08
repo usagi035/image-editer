@@ -3,6 +3,7 @@ import { useConfig } from "../config/ConfigContext";
 import { isPaintToolAllowed } from "../config/mode";
 import { useEditor } from "../editor/EditorContext";
 import { getComposite } from "../editor/compositor";
+import { applyBucketToLayer } from "../editor/bucketTools";
 import { hexToUint32, uint32ToHex } from "../editor/colorUtils";
 import {
   beginStroke,
@@ -34,7 +35,9 @@ export default function CanvasViewport() {
     tool,
     pen,
     eraserSize,
+    bucket,
     primaryColor,
+    secondaryColor,
     setPrimaryColor,
     mode,
     activeLayerId,
@@ -267,10 +270,45 @@ export default function CanvasViewport() {
         startStroke(e);
       } else if (tool === "eyedropper") {
         sampleColor(e);
+      } else if (tool === "bucket") {
+        // 特殊バケツ（Uint32Array メモリ直接操作）
+        const layer = layers.find((l) => l.id === activeLayerId);
+        const p = docPointFromEvent(e);
+        if (!layer) return;
+        if (p.x < 0 || p.x >= docWidth || p.y < 0 || p.y >= docHeight) return;
+        applyBucketToLayer(
+          layer,
+          bucket.mode,
+          {
+            color: hexToUint32(primaryColor),
+            color2: hexToUint32(secondaryColor),
+            tolerance: bucket.tolerance,
+            jitter: bucket.jitter,
+            ditherCell: config.tools.bucket.dither_pattern_size,
+          },
+          p
+        );
+        bumpRevision();
       }
-      // bucket / colorReplace / 選択 / crop 等は各機能単位で実装
+      // colorReplace / 選択 / crop 等は各機能単位で実装
     },
-    [mode, startPan, startStroke, sampleColor, tool]
+    [
+      activeLayerId,
+      bucket,
+      bumpRevision,
+      config.tools.bucket.dither_pattern_size,
+      docHeight,
+      docPointFromEvent,
+      docWidth,
+      layers,
+      mode,
+      primaryColor,
+      secondaryColor,
+      startPan,
+      startStroke,
+      sampleColor,
+      tool,
+    ]
   );
 
   const onPointerMove = useCallback(
