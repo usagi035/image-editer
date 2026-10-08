@@ -27,7 +27,9 @@ export const PAINT_ONLY_TOOLS = [
   "pen",
   "eraser",
   "bucket",
+  "eyedropper",
   "colorReplace",
+  "rectSelect",
   "magicWand",
 ] as const;
 

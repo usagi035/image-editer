@@ -39,14 +39,15 @@ export interface CanvasConfig {
   selection_color: string;
   checkerboard_color_a: string;
   checkerboard_color_b: string;
+  checker_cell_size: number;
   background_color: string;
 }
 
 export type BucketMode = "flood" | "global" | "noise" | "dither" | "eraser";
 
 export interface ToolsConfig {
-  pen: { size: number; pixel_perfect: boolean; default_color: string };
-  eraser: { size: number };
+  pen: { size: number; max_size: number; pixel_perfect: boolean; default_color: string };
+  eraser: { size: number; max_size: number };
   bucket: {
     mode: BucketMode;
     tolerance: number;
@@ -65,6 +66,8 @@ export interface ToolsConfig {
 export interface UiConfig {
   show_grid: boolean;
   grid_min_zoom: number;
+  grid_strong_interval: number;
+  grid_max_lines: number;
   zoom_min: number;
   zoom_max: number;
   zoom_step: number;
