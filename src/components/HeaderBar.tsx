@@ -64,8 +64,7 @@ export default function HeaderBar() {
     zoomBy,
     resetZoom,
     toggleGrid,
-    setDocumentSize,
-    onNewDocument,
+    newDocument,
   } = useEditor();
   const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -176,10 +175,7 @@ export default function HeaderBar() {
       <NewDocumentDialog
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
-        onCreate={(w, h) => {
-          setDocumentSize(w, h);
-          onNewDocument();
-        }}
+        onCreate={(w, h) => newDocument(w, h)}
       />
     </header>
   );

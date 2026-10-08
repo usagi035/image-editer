@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useConfig } from "../config/ConfigContext";
 import { useEditor } from "../editor/EditorContext";
+import { getComposite } from "../editor/compositor";
 import { isTypingTarget, matchesShortcut } from "../editor/shortcuts";
 import { renderViewport } from "../editor/viewportRenderer";
 
@@ -19,10 +20,13 @@ export default function CanvasViewport() {
     setView,
     zoomBy,
     setViewportSize,
+    layers,
+    revision,
   } = useEditor();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const compositeRef = useRef<import("../editor/compositor").CompositeCache | null>(null);
   const spaceRef = useRef(false);
   const panRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(
     null
@@ -53,7 +57,7 @@ export default function CanvasViewport() {
     return () => ro.disconnect();
   }, [setViewportSize]);
 
-  // --- 描画 ---
+  // --- 描画（レイヤー合成は revision ベースでキャッシュ） ---
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || size.w === 0 || size.h === 0) return;
@@ -68,8 +72,18 @@ export default function CanvasViewport() {
       docHeight,
       view,
       config,
+      composite: (docCtx) => {
+        compositeRef.current = getComposite(
+          compositeRef.current,
+          layers,
+          docWidth,
+          docHeight,
+          revision
+        );
+        docCtx.drawImage(compositeRef.current.canvas, 0, 0);
+      },
     });
-  }, [size, view, docWidth, docHeight, config]);
+  }, [size, view, docWidth, docHeight, config, layers, revision]);
 
   // --- ホイールズーム（preventDefault のため非 passive で購読） ---
   useEffect(() => {
