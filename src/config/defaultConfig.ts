@@ -75,8 +75,6 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   shortcuts: {
     save: "Ctrl+S",
-    undo: "Ctrl+Z",
-    redo: "Ctrl+Y",
     zoom_in: "Ctrl+Plus",
     zoom_out: "Ctrl+Minus",
     zoom_reset: "Ctrl+0",
