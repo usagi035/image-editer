@@ -12,6 +12,7 @@ import { useConfig } from "../config/ConfigContext";
 import { MODE_LABEL } from "../config/mode";
 import { useEditor } from "../editor/EditorContext";
 import type { ExportFormat } from "../editor/ioTools";
+import { formatUsage, usagePercent } from "../editor/memoryBudget";
 import { isTypingTarget, matchesShortcut } from "../editor/shortcuts";
 import ExportDialog from "./ExportDialog";
 import NewDocumentDialog from "./NewDocumentDialog";
@@ -70,6 +71,7 @@ export default function HeaderBar() {
     newDocument,
     loadImage,
     exportImage,
+    memoryUsage,
   } = useEditor();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -122,8 +124,8 @@ export default function HeaderBar() {
   }, [config.export.default_format, config.export.scales, config.shortcuts.save, exportImage]);
 
   const isPixel = mode === "pixel";
-  const accent = config.theme.colors.accent;
-  const muted = config.theme.colors.text_muted;
+  const accent = config.theme.accent;
+  const muted = config.theme.text_muted;
 
   return (
     <header
@@ -183,6 +185,17 @@ export default function HeaderBar() {
         )}
         <span className="text-app-muted font-mono-nums">
           {docWidth}×{docHeight}
+        </span>
+        {/* メモリ使用量（仕様書 3: 予算に対する割合、config: memory.budget_mb） */}
+        <span
+          className="font-mono-nums"
+          style={{
+            color: usagePercent(memoryUsage) >= 80 ? "var(--color-danger)" : muted,
+            fontSize: "0.85em",
+          }}
+          title={`メモリ使用量 / 予算 ${Math.round(usagePercent(memoryUsage))}%（config: memory.budget_mb）`}
+        >
+          メモリ {formatUsage(memoryUsage)}
         </span>
       </div>
 

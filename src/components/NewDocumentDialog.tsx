@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useConfig } from "../config/ConfigContext";
+import { checkPixelLimit, maxEdgeLength } from "../config/limits";
 
 interface Props {
   open: boolean;
@@ -16,7 +17,8 @@ export default function NewDocumentDialog({ open, onClose, onCreate }: Props) {
 
   if (!open) return null;
 
-  const max = config.canvas.max_size;
+  const maxPixels = config.canvas.max_pixels;
+  const max = maxEdgeLength(maxPixels);
   const submit = () => {
     const w = Math.round(Number(width));
     const h = Math.round(Number(height));
@@ -24,8 +26,9 @@ export default function NewDocumentDialog({ open, onClose, onCreate }: Props) {
       setError("1 以上の数値を入力してください");
       return;
     }
-    if (w > max || h > max) {
-      setError(`上限は ${max}px です（config: canvas.max_size）`);
+    const limitError = checkPixelLimit(w, h, maxPixels);
+    if (limitError) {
+      setError(limitError.replace(/\n/g, " "));
       return;
     }
     onCreate(w, h);

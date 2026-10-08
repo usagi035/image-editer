@@ -88,19 +88,24 @@ export function cropLayers(
 /**
  * 書き出し用キャンバスを合成する。
  * 倍率拡大は imageSmoothing OFF でドットを維持する。
- * JPEG はアルファを持てないため白で下塗りする。
+ * JPEG はアルファを持てないため、background（config: export.jpeg_background）で下塗りする。
  */
 export function renderExportCanvas(
   layers: Layer[],
   docWidth: number,
   docHeight: number,
-  scale: number
+  scale: number,
+  background?: string
 ): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(docWidth * scale));
   canvas.height = Math.max(1, Math.round(docHeight * scale));
   const ctx = canvas.getContext("2d")!;
   ctx.imageSmoothingEnabled = false;
+  if (background) {
+    ctx.fillStyle = background;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
   for (const layer of layers) {
     if (!layer.visible || layer.opacity <= 0) continue;
     ctx.globalAlpha = layer.opacity / 100;
@@ -110,8 +115,14 @@ export function renderExportCanvas(
   return canvas;
 }
 
+/**
+ * config の品質値（0〜100）を Canvas API 用の 0〜1 に変換する。
+ * PNG は品質指定が無効なため常に 1。
+ */
 export function qualityFor(format: ExportFormat, configQuality: number): number {
-  return format === "png" ? 1 : configQuality;
+  if (format === "png") return 1;
+  const q = Number.isFinite(configQuality) ? configQuality : 92;
+  return Math.min(100, Math.max(0, q)) / 100;
 }
 
 export async function canvasToBlob(

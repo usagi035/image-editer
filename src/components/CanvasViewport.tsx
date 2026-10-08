@@ -510,7 +510,7 @@ export default function CanvasViewport() {
         <div
           className="pointer-events-none absolute inset-0 flex items-center justify-center"
           style={{
-            border: `2px dashed ${config.theme.colors.accent}`,
+            border: `2px dashed ${config.theme.accent}`,
             background: "rgba(0,0,0,0.35)",
           }}
         >
