@@ -1,19 +1,14 @@
 # Image Editor — Minecraft テクスチャ向けドット絵エディタ
 
-Minecraft のテクスチャ制作（16x16〜512x512px のピクセルアート）に特化したドット絵エディタと、最大 5000x5000px まで対応する軽量画像ユーティリティを併せ持つ画像編集アプリです。**Web（Vite 静的ビルド）** と **デスクトップ（Electron）** の両方で動作します。
+Minecraft のテクスチャ制作（16x16〜512x512px のピクセルアート）に特化したドット絵エディタで、**幅×高さ 67,108,864 px（8192x8192）** までの画像編集に対応します。**Web（Vite 静的ビルド）** と **デスクトップ（Electron）** の両方で動作します。
 
 UI・色・フォント・閾値などの設定はすべて `config.yaml` で一元管理されており、コード内のハードコードは行いません。
 
 ## 主な機能
 
-### 動作モード（`canvas.full_feature_threshold` で自動切替）
+> モード分け（Pixel Art / Utility）は改訂版仕様書 2.2 により**廃止**されました。画像サイズに関わらず全ツールが利用できます。
 
-| モード | 条件 | 内容 |
-| :--- | :--- | :--- |
-| **Pixel Art Mode** | 画像サイズ ≦ 512x512 | 全ツール利用可（ペイント / 選択 / レイヤー / HSV / エクスポート） |
-| **Utility Mode** | 画像サイズ > 512x512 | 描画ツール無効、リサイズ・クロップ・全域 HSV 補正・形式変換のみ |
-
-### ピクセル編集（Pixel Art Mode）
+### ピクセル編集
 - **ペン**: 1px 単位描画 + Pixel-Perfect（ジグザグ抑止）切替、太さ 1〜16px
 - **消しゴム / スポイト**: アルファ 0 化・クリック位置の RGBA 取得
 - **特殊バケツ 5 モード**: Flood Fill / Global Fill / Noise Fill / Dither Fill / Eraser Fill（許容値 0〜255、ノイズ強度 0〜100%）
@@ -22,7 +17,7 @@ UI・色・フォント・閾値などの設定はすべて `config.yaml` で一
 - **レイヤー**: 追加・複製・削除・上下移動・統合・不透明度・表示/非表示
 - **HSV 調整**: Hue / 彩度 / 明度 / コントラストをスライダー即時プレビュー → 適用
 
-### ユーティリティ（Utility Mode 含む）
+### ユーティリティ
 - **リサイズ**: 全レイヤーをスケール（拡大はニアレストでドット維持）
 - **クロップ**: ドラッグ範囲で全レイヤーを切り出し
 - **読み込み**: PNG / JPEG / WebP / GIF（静止画）— ファイルダイアログ、またはキャンバスへドラッグ＆ドロップ
@@ -69,14 +64,15 @@ npm run electron       # Electron で起動
 
 アプリは起動時に `config.yaml` を読み込み、React Context（`ConfigContext`）経由で全コンポーネントへ提供します。
 
-- **読み込み順**: Electron（ローカル `config.yaml`）→ Web（`public/config.yaml`）→ フォールバック既定値
+- **読み込み順**: Electron（`userData/config.yaml` — 無ければ同梱の既定ファイルをコピー生成）→ Web（`public/config.yaml`）→ フォールバック既定値
 - **再読み込み**: ヘッダーの「設定再読み込み」ボタン（`config.yaml` を修正して即反映）
+- **不正値の扱い**: 型違い・範囲外・色書式エラーは既定値へフォールバックし、画面下部にトースト警告（上限超過はエラーダイアログで拒否）
 - **主な設定項目**
   - `theme.*` — 色・フォント・角丸（CSS 変数へ適用）
-  - `canvas.full_feature_threshold` — モード切替閾値（既定 512）
-  - `canvas.max_size` — 最大キャンバスサイズ（既定 5000）
+  - `canvas.max_pixels` — 幅×高さの上限（既定 67,108,864 = 8192x8192）
+  - `memory.budget_mb` / `history.*` — メモリ予算と Undo/Redo の上限
   - `tools.*` — ペン/バケツ/魔術の杖/色置換/HSV の既定値
-  - `export.*` — 書き出し形式・倍率・品質
+  - `export.*` — 書き出し形式・倍率・品質（0〜100）・JPEG 背景色
   - `shortcuts.*` — キーボードショートカット表記
 
 > 色・フォント・閾値などのハードコードは禁止です。変更は必ず `config.yaml` 経由で行ってください。
@@ -96,7 +92,7 @@ npm run electron       # Electron で起動
 
 ```
 ┌────────────────────────────────────────────┐
-│ Header: 新規 / 開く / 保存 / 設定再読み込み │  モードバナー / ズーム / グリッド
+│ Header: 新規 / 開く / 保存 / 設定再読み込み │  寸法 / メモリ使用量 / ズーム / グリッド
 ├───┬──────────────────────────────┬─────────┤
 │ T │                              │ カラー  │
 │ o │      Canvas Viewport        │ ツール  │
@@ -111,13 +107,14 @@ npm run electron       # Electron で起動
 ```
 src/
 ├── components/       # HeaderBar / Toolbox / CanvasViewport / InspectorPanel / 各ダイアログ
-├── config/           # ConfigContext / configTypes / defaultConfig / mode（モード判定）
+├── config/           # ConfigContext / configTypes / defaultConfig / validate / limits
 ├── editor/           # EditorContext（状態）+ 各ツールエンジン
 │   ├── drawTools.ts        # ストローク（Bresenham / Pixel-Perfect）
 │   ├── bucketTools.ts      # 特殊バケツ 5 モード + 色置換
 │   ├── selectionTools.ts   # 矩形/魔術の杖 + マスク構築
 │   ├── adjustTools.ts      # HSV / 明度 / コントラスト
 │   ├── ioTools.ts          # 読み込み / リサイズ / クロップ / 書き出し
+│   ├── memoryBudget.ts     # メモリ予算（MemoryBudget）
 │   ├── compositor.ts       # レイヤー合成キャッシュ
 │   └── viewportRenderer.ts # ビューポート描画パイプライン
 └── App.tsx
@@ -125,7 +122,7 @@ electron/
 ├── main.cjs          # メインプロセス（ウィンドウ / IPC / fs）
 └── preload.cjs       # contextBridge（electronAPI 公開）
 public/
-└── config.yaml       # 全設定のソース
+└── config.yaml       # 全設定のソース（Electron は userData/config.yaml が優先）
 ```
 
 ## 開発ルール

@@ -7,7 +7,7 @@ import type { SelectionState } from "./types";
  * 色調調整（仕様書 4.4 HSV / 明度 / コントラスト）
  * - Hue: -180〜+180, Saturation / Value / Contrast: -100〜+100
  * - ピクセル処理は Uint32Array / ImageData 直接操作（fillRect ループ禁止）
- * - Utility Mode のプレビューは full_feature_threshold 以下の解像度に縮小して軽量化
+ * - 対象は現在のレイヤー（改訂版仕様書 4.4、モード分けは廃止）
  */
 
 export interface AdjustParams {
@@ -183,34 +183,26 @@ export interface AdjustPreviewParams {
   params: AdjustParams;
   scope: "layer" | "selection";
   selection: SelectionState | null;
-  /** true で Utility Mode（全レイヤー対象 + 低解像度プレビュー） */
-  utility: boolean;
   width: number;
   height: number;
   revision: number;
-  /** プレビュー縮小閾値（config.canvas.full_feature_threshold） */
-  previewThreshold: number;
 }
 
 /**
  * リアルタイムプレビュー用の合成キャンバスを返す。
  * revision / パラメータ / 選択の変化時のみ再計算する。
+ * 対象は現在のレイヤー（改訂版仕様書 4.4: モード分けは廃止）。
  */
 export function getAdjustPreview(
   cache: AdjustPreviewCache | null,
   p: AdjustPreviewParams
 ): AdjustPreviewCache {
-  const targets = p.utility
-    ? p.layers
-    : p.layers.filter((l) => l.id === p.activeLayerId);
-  const mask = p.utility
-    ? null
-    : buildAdjustMask(p.scope, p.selection, p.width, p.height);
-  const selRef = p.utility ? null : p.selection;
+  const targets = p.layers.filter((l) => l.id === p.activeLayerId);
+  const mask = buildAdjustMask(p.scope, p.selection, p.width, p.height);
+  const selRef = p.selection;
   const key = [
     p.revision,
     p.activeLayerId,
-    p.utility,
     p.scope,
     p.params.hue,
     p.params.saturation,
@@ -218,17 +210,13 @@ export function getAdjustPreview(
     p.params.contrast,
     p.width,
     p.height,
-    p.previewThreshold,
   ].join(":");
 
   if (cache && cache.key === key && cache.selection === selRef) return cache;
 
-  // Utility Mode は閾値を超えるため縮小プレビュー（表示のみ・破壊的適用は全解像度）
-  const scale = p.utility
-    ? Math.min(1, p.previewThreshold / Math.max(p.width, p.height))
-    : 1;
-  const pw = Math.max(1, Math.round(p.width * scale));
-  const ph = Math.max(1, Math.round(p.height * scale));
+  // プレビューはドキュメント全体解像度で合成する
+  const pw = Math.max(1, p.width);
+  const ph = Math.max(1, p.height);
 
   let canvas = cache?.canvas;
   if (!canvas) canvas = document.createElement("canvas");

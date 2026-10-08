@@ -22,7 +22,6 @@ canvas:
   grid_max_lines: 1024             # グリッド描画する最大画素数(性能ガード)
   zoom_min: 0.0625                 # 1/16倍
   zoom_max: 64
-  full_feature_threshold: 512      # 【廃止予定】モード切替閾値（改訂版 2.2 でモード分け廃止）
   grid_line_color: "rgba(255,255,255,0.07)"
   grid_line_color_strong: "rgba(255,255,255,0.16)"
   selection_color: "#4f8cff"       # 選択範囲の点線色
@@ -57,7 +56,6 @@ theme:
 ui:
   show_grid: true                  # 起動時のグリッド表示
   zoom_step: 1.25                  # ホイールズーム係数
-  show_mode_banner: true           # 【廃止予定】モードバナー表示（MS1 途中で削除）
 
 tools:
   pen:

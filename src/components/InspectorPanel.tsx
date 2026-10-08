@@ -261,7 +261,6 @@ function HsvOptions() {
     resetAdjust,
     applyAdjust,
     selection,
-    mode,
     activeLayerId,
     layers,
   } = useEditor();
@@ -278,13 +277,7 @@ function HsvOptions() {
 
   return (
     <div className="flex flex-col gap-2">
-      <Hint
-        text={
-          mode === "utility"
-            ? "Utility Mode: 全レイヤーへ適用されます（低解像度プレビュー）"
-            : "スライダー移動でリアルタイムプレビュー。適用で選択中レイヤーを書き換えます"
-        }
-      />
+      <Hint text="スライダー移動でリアルタイムプレビュー。適用で選択中レイヤーを書き換えます" />
       {params.map((p) => (
         <SliderRow
           key={p.key}
@@ -301,7 +294,6 @@ function HsvOptions() {
         <select
           value={adjustScope}
           onChange={(e) => setAdjustScope(e.target.value as ReplaceScope)}
-          disabled={mode === "utility"}
           className="min-w-0 flex-1 rounded px-2 py-1 disabled:opacity-40"
           style={{
             background: "var(--color-panel-alt)",
@@ -345,7 +337,7 @@ function HsvOptions() {
 /* ---------------- リサイズ / クロップ（仕様書 5） ---------------- */
 
 function ResizeOptions() {
-  const { docWidth, docHeight, setDocumentSize, mode } = useEditor();
+  const { docWidth, docHeight, setDocumentSize } = useEditor();
   const { config } = useConfig();
   const [w, setW] = useState(docWidth);
   const [h, setH] = useState(docHeight);
@@ -377,13 +369,7 @@ function ResizeOptions() {
 
   return (
     <div className="flex flex-col gap-2">
-      <Hint
-        text={
-          mode === "utility"
-            ? "Utility Mode: リサイズは全レイヤーへ適用されます"
-            : "全レイヤーのピクセルをスケールします（拡大はニアレスト）"
-        }
-      />
+      <Hint text="全レイヤーのピクセルをスケールします（拡大はニアレスト）" />
       <div className="flex items-center gap-2">
         <span className="w-6 text-app-muted">幅</span>
         <input

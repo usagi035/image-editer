@@ -11,7 +11,6 @@ import {
 } from "react";
 import { useConfig } from "../config/ConfigContext";
 import { checkPixelLimit } from "../config/limits";
-import { resolveMode, type EditorMode } from "../config/mode";
 import type { BucketMode } from "../config/configTypes";
 import { showErrorDialog } from "../components/notify";
 import {
@@ -60,10 +59,9 @@ export interface EditorContextValue {
   // --- ドキュメント ---
   docWidth: number;
   docHeight: number;
-  mode: EditorMode;
   /** ドキュメント名（保存時の既定ファイル名に使用） */
   docName: string;
-  /** 全レイヤーを含めてリサイズ（仕様書 5 / Utility Mode） */
+  /** 全レイヤーを含めてリサイズ（仕様書 5） */
   setDocumentSize: (w: number, h: number) => void;
   /** 新規作成: 寸法変更 + レイヤー初期化を同時に行う */
   newDocument: (w: number, h: number) => void;
@@ -135,7 +133,7 @@ export interface EditorContextValue {
   setAdjustParam: (key: AdjustParamKey, value: number) => void;
   setAdjustScope: (s: ReplaceScope) => void;
   resetAdjust: () => void;
-  /** 選択中レイヤー（Utility Mode は全レイヤー）へ破壊的に適用 */
+  /** 選択中レイヤーへ破壊的に適用（全レイヤーは MS9 のチェックで切替） */
   applyAdjust: () => void;
 
   // --- ビューポート ---
@@ -294,12 +292,6 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  const mode = resolveMode(
-    docWidth,
-    docHeight,
-    config.canvas.full_feature_threshold
-  );
-
   const defaultAdjust = config.tools.adjustment;
   const setAdjustParam = useCallback(
     (key: AdjustParamKey, value: number) => {
@@ -322,10 +314,8 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   const applyAdjust = useCallback(() => {
     if (isIdentityAdjust(adjust)) return;
-    const targets =
-      mode === "utility"
-        ? layers
-        : layers.filter((l) => l.id === activeLayerId);
+    // 対象は現在のレイヤー（改訂版仕様書 4.4: 全レイヤーはチェックで切替 → MS9）
+    const targets = layers.filter((l) => l.id === activeLayerId);
     for (const layer of targets) {
       const mask = buildAdjustMask(
         adjustScope,
@@ -343,7 +333,6 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     adjustScope,
     bumpRevision,
     layers,
-    mode,
     resetAdjust,
     selection,
   ]);
@@ -782,7 +771,6 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     () => ({
       docWidth,
       docHeight,
-      mode,
       docName,
       setDocumentSize,
       newDocument,
@@ -847,7 +835,6 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     [
       docWidth,
       docHeight,
-      mode,
       docName,
       setDocumentSize,
       newDocument,

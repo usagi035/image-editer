@@ -110,7 +110,6 @@ section:                 # キーは snake_case
 | `canvas.grid_strong_interval` | `16` | 太線の間隔（px）。16×16 ブロック境界向け | `viewportRenderer.ts` |
 | `canvas.grid_max_lines` | `1024` | グリッド描画の最大画素数（性能ガード） | `viewportRenderer.ts` |
 | `canvas.zoom_min` / `_max` | `0.0625` / `64` | ズーム範囲（1/16〜64）。`min ≥ max` は既定へ戻して警告 | `EditorContext.tsx` |
-| `canvas.full_feature_threshold` | `512` | **【廃止予定】** モード切替閾値（改訂版 2.2 でモード分け廃止 → MS1 途中で削除） | `mode.ts` |
 | `canvas.grid_line_color` / `_strong` | `rgba(255,255,255,0.07)` / `0.16` | グリッド細線 / 太線 | `viewportRenderer.ts` |
 | `canvas.selection_color` | `#4f8cff` | 選択範囲の点線色 | `CanvasViewport.tsx` |
 | `canvas.checkerboard_color_a` / `_b` | `#3a3e4b` / `#2b2e38` | 透過確認用チェッカーの2色 | `applyTheme()` → `viewportRenderer.ts` |
@@ -157,7 +156,6 @@ section:                 # キーは snake_case
 | :--- | :--- | :--- | :--- |
 | `ui.show_grid` | `true` | 起動時のグリッド表示状態 | `EditorContext.tsx` |
 | `ui.zoom_step` | `1.25` | ホイール / ズームボタンの係数 | `EditorContext` / `CanvasViewport` / `HeaderBar` |
-| `ui.show_mode_banner` | `true` | **【廃止予定】** モードバナー表示（MS1 途中で削除） | `HeaderBar.tsx` |
 
 ### 4.7 `export` — 書き出し
 
@@ -275,7 +273,7 @@ theme:
 | `max_pixels` 上限チェック + エラーダイアログ | 実装済み（本ブランチ） |
 | `MemoryBudget` クラス + 予算拒否 + ヘッダー表示 | 実装済み（本ブランチ） |
 | `export.jpeg_background` / 品質 0〜100 | 実装済み（本ブランチ） |
-| モード分けの廃止（`full_feature_threshold` 削除） | 次ブランチ（`feature/mode-removal`） |
+| モード分けの廃止（`full_feature_threshold` / `show_mode_banner` 削除） | 実装済み（`feature/mode-removal`） |
 | Worker（`worker_pixel_threshold`） | MS6 |
 | 履歴（`history.*`） | MS5 |
 | Zustand / Vitest | `feature/state-zustand` |
