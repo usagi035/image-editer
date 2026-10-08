@@ -113,7 +113,7 @@ export function renderViewport(p: ViewportRenderParams): void {
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     const scale = zoom * dpr;
-    const lineW = Math.max(1, dpr * 0.5) * 2; // 1 CSS px 相当
+    const lineW = dpr; // 1 CSS px 相当（高DPIは2デバイスpx）
     const i0 = Math.max(0, Math.floor(-ox / scale));
     const i1 = Math.min(docWidth, Math.ceil((cw - ox) / scale));
     const j0 = Math.max(0, Math.floor(-oy / scale));
@@ -147,16 +147,14 @@ export function renderViewport(p: ViewportRenderParams): void {
     ctx.restore();
   }
 
-  // 5. ドキュメント枠線
+  // 5. ドキュメント枠線（最外周ピクセルを潰さないよう外側に描画する）
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.strokeStyle = config.theme.colors.border;
-  ctx.lineWidth = Math.max(1, dpr);
-  ctx.strokeRect(
-    ox + ctx.lineWidth / 2,
-    oy + ctx.lineWidth / 2,
-    Math.max(0, dwPx - ctx.lineWidth),
-    Math.max(0, dhPx - ctx.lineWidth)
-  );
+  ctx.fillStyle = config.theme.colors.border;
+  const t = dpr; // 枠線太さ（デバイスpx）
+  ctx.fillRect(ox - t, oy - t, dwPx + 2 * t, t); // 上
+  ctx.fillRect(ox - t, oy + dhPx, dwPx + 2 * t, t); // 下
+  ctx.fillRect(ox - t, oy, t, dhPx); // 左
+  ctx.fillRect(ox + dwPx, oy, t, dhPx); // 右
   ctx.restore();
 }

@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useConfig } from "../config/ConfigContext";
+import { isPaintToolAllowed } from "../config/mode";
 import { useEditor } from "../editor/EditorContext";
 import { getComposite } from "../editor/compositor";
+import { hexToUint32, uint32ToHex } from "../editor/colorUtils";
+import {
+  beginStroke,
+  continueStroke,
+  endStroke,
+  type StrokeSession,
+} from "../editor/drawTools";
 import { isTypingTarget, matchesShortcut } from "../editor/shortcuts";
 import { renderViewport } from "../editor/viewportRenderer";
+import { viewToDoc, type DocPoint } from "../editor/types";
 
 /**
  * キャンバス表示エリア（仕様書 3. Center Panel）
@@ -22,11 +31,20 @@ export default function CanvasViewport() {
     setViewportSize,
     layers,
     revision,
+    tool,
+    pen,
+    eraserSize,
+    primaryColor,
+    setPrimaryColor,
+    mode,
+    activeLayerId,
+    bumpRevision,
   } = useEditor();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const compositeRef = useRef<import("../editor/compositor").CompositeCache | null>(null);
+  const strokeRef = useRef<StrokeSession | null>(null);
   const spaceRef = useRef(false);
   const panRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(
     null
@@ -128,6 +146,96 @@ export default function CanvasViewport() {
     };
   }, [config.shortcuts.pan]);
 
+  /** イベント → キャンバス座標 */
+  const docPointFromEvent = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>): DocPoint => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      return viewToDoc(
+        { x: e.clientX - rect.left, y: e.clientY - rect.top },
+        view
+      );
+    },
+    [view]
+  );
+
+  /** ペン / 消しゴム: ストローク開始 */
+  const startStroke = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>): boolean => {
+      const layer = layers.find((l) => l.id === activeLayerId);
+      if (!layer) return false;
+      const erase = tool === "eraser";
+      const session = beginStroke(
+        layer,
+        {
+          color: hexToUint32(primaryColor),
+          size: erase ? eraserSize : pen.size,
+          erase,
+          pixelPerfect: pen.pixelPerfect,
+        },
+        docPointFromEvent(e)
+      );
+      if (!session) return false;
+      strokeRef.current = session;
+      bumpRevision();
+      return true;
+    },
+    [
+      activeLayerId,
+      bumpRevision,
+      docPointFromEvent,
+      eraserSize,
+      layers,
+      pen.pixelPerfect,
+      pen.size,
+      primaryColor,
+      tool,
+    ]
+  );
+
+  /** スポイト: クリック箇所の RGBA を取得して主色に設定 */
+  const sampleColor = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const p = docPointFromEvent(e);
+      const { sample_merged } = config.tools.eyedropper;
+      let canvas: HTMLCanvasElement;
+      if (sample_merged) {
+        const cache = getComposite(
+          compositeRef.current,
+          layers,
+          docWidth,
+          docHeight,
+          revision
+        );
+        compositeRef.current = cache;
+        canvas = cache.canvas;
+      } else {
+        const layer = layers.find((l) => l.id === activeLayerId);
+        if (!layer) return;
+        canvas = layer.canvas;
+      }
+      if (p.x < 0 || p.x >= canvas.width || p.y < 0 || p.y >= canvas.height)
+        return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const d = ctx.getImageData(p.x, p.y, 1, 1).data;
+      const hex = uint32ToHex(
+        ((d[3] << 24) | (d[2] << 16) | (d[1] << 8) | d[0]) >>> 0
+      );
+      setPrimaryColor(hex);
+    },
+    [
+      activeLayerId,
+      config.tools.eyedropper,
+      compositeRef,
+      docHeight,
+      docPointFromEvent,
+      docWidth,
+      layers,
+      revision,
+      setPrimaryColor,
+    ]
+  );
+
   const startPan = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       panRef.current = {
@@ -148,29 +256,53 @@ export default function CanvasViewport() {
       // 中ボタン、または Space+左ドラッグでパン
       if (e.button === 1 || (e.button === 0 && spaceRef.current)) {
         startPan(e);
+        return;
       }
+      if (e.button !== 0) return;
+      // Utility Mode では描画系ツールを受け付けない（仕様書 2.2）
+      if (!isPaintToolAllowed(tool, mode)) return;
+
+      if (tool === "pen" || tool === "eraser") {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        startStroke(e);
+      } else if (tool === "eyedropper") {
+        sampleColor(e);
+      }
+      // bucket / colorReplace / 選択 / crop 等は各機能単位で実装
     },
-    [startPan]
+    [mode, startPan, startStroke, sampleColor, tool]
   );
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       const p = panRef.current;
-      if (!p) return;
-      const dx = e.clientX - p.x;
-      const dy = e.clientY - p.y;
-      setView((v) => ({ ...v, panX: p.panX + dx, panY: p.panY + dy }));
+      if (p) {
+        const dx = e.clientX - p.x;
+        const dy = e.clientY - p.y;
+        setView((v) => ({ ...v, panX: p.panX + dx, panY: p.panY + dy }));
+        return;
+      }
+      const session = strokeRef.current;
+      if (session) {
+        continueStroke(session, docPointFromEvent(e));
+        bumpRevision();
+      }
     },
-    [setView]
+    [bumpRevision, docPointFromEvent, setView]
   );
 
   const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (panRef.current) {
       panRef.current = null;
       setPanning(false);
-      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      }
+    }
+    const session = strokeRef.current;
+    if (session) {
+      endStroke(session);
+      strokeRef.current = null;
+    }
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
     }
   }, []);
 
