@@ -12,6 +12,7 @@ UI・色・フォント・閾値などの設定はすべて `config.yaml` で一
 - **ペン**: 1px 単位描画 + Pixel-Perfect（ジグザグ抑止）切替、太さ 1〜16px
 - **消しゴム / スポイト**: アルファ 0 化・クリック位置の RGBA 取得
 - **特殊バケツ 5 モード**: Flood Fill / Global Fill / Noise Fill / Dither Fill / Eraser Fill（許容値 0〜255、ノイズ強度 0〜100%）
+- **重い画素処理の Worker 実行**: 対象ピクセル数が `canvas.worker_pixel_threshold`（既定 100 万px）以上のバケツは Web Worker で実行。ヘッダーに進捗表示とキャンセルボタンを表示し、実行中は編集ツールと Undo/Redo をロックする。キャンセルした画像は実行前の状態のまま
 - **範囲選択**: 矩形選択・魔術の杖（連続/全域・許容値）。選択外へのペイント・塗り潰しを遮断
 - **色置換**: 指定色 A → B を「レイヤー全体 / 選択範囲」から置換
 - **レイヤー**: 追加・複製・削除・上下移動・統合・不透明度・表示/非表示
@@ -115,6 +116,8 @@ src/
 ├── editor/           # editorStore（Zustand 状態）/ EditorContext（型・Provider）+ 各ツールエンジン
 │   ├── drawTools.ts        # ストローク（Bresenham / Pixel-Perfect）
 │   ├── bucketTools.ts      # 特殊バケツ 5 モード + 色置換
+│   ├── pixelWorker.ts      # ピクセル処理 Worker（バケツ実行・進捗通知）
+│   ├── workerHost.ts       # Worker 実行基盤（閾値判定 / Transferable 転送 / キャンセル）
 │   ├── selectionTools.ts   # 矩形/魔術の杖 + マスク構築
 │   ├── adjustTools.ts      # HSV / 明度 / コントラスト
 │   ├── ioTools.ts          # 読み込み / リサイズ / クロップ / 書き出し

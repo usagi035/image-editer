@@ -283,3 +283,4 @@ theme:
 | Zustand / Vitest | `feature/state-zustand` |
 | ビューポート範囲のみの合成 + 画面に合わせる（MS2） | 実装済み（`feature/viewport-region`）: `compositor.ts` が表示中ドキュメント範囲∩ダーティ矩形のみ合成。`shortcuts.fit` = `Ctrl+0` / `zoom_reset` = `Ctrl+1` |
 | レイヤー実体を `Uint32Array` に（MS4） | 実装済み（`feature/layer-uint32`）: `Layer` は非表示 Canvas を持たず `pixels: Uint32Array` を保持。描画・バケツ・色置換・HSV・履歴パッチはすべて直接ピクセル操作 |
+| 重い画素処理を Worker へ（MS6） | 実装済み（`feature/worker-bucket`）: `canvas.worker_pixel_threshold`（既定 100 万px）以上のバケツは Web Worker（`pixelWorker.ts`）で実行。ヘッダーに進捗`<progress>`とキャンセルボタンを表示、実行中はツールと Undo/Redo をロック。キャンセル時は結果を破棄して実行前の状態のまま。小画像は従来どおりメインスレッド同期実行 |
