@@ -75,10 +75,11 @@ npm run build:exe
 
 | 成果物 | 内容 |
 | :--- | :--- |
-| `release/ImageEditor-Portable-<version>.exe` | 単一 portable exe（ダブルクリックで自己展開・インストール不要） |
-| `release/win-unpacked/`（フォルダ一式） | フォルダ版（このフォルダごと USB メモリ等へ持ち運び可能） |
+| `release/ImageEditor-Portable-<version>.exe` | 単一 portable exe（Electron の DLL・locales・resources を全部内包）。ダブルクリックで自己展開して起動 — **これが配布物** |
 
-どちらもユーザーデータ（`config.yaml` 等）は **exe の隣の `data/` フォルダ** に保存されるため、配布物ごと移動すれば設定も一緒に移動します（書き込み不可の場所・開発時は `%APPDATA%` へフォールバック）。
+ビルド後は中間物（`win-unpacked/`・`.icon-ico/`・`builder-debug.yml` 等）を `scripts/clean-release.cjs` が自動削除し、**portable exe だけ**を `release/` に残します。フォルダ版も残したい場合は `npm run build:exe -- --keep-folder`（`release/win-unpacked/` がそのまま残ります。手動整理は `npm run clean:release`）。
+
+portable exe・フォルダ版のどちらもユーザーデータ（`config.yaml` 等）は **exe の隣の `data/` フォルダ** に保存されるため、配布物ごと移動すれば設定も一緒に移動します（書き込み不可の場所・開発時は `%APPDATA%` へフォールバック）。
 
 ## 設定（`public/config.yaml`）
 
