@@ -174,7 +174,9 @@ section:                 # キーは snake_case
 | `shortcuts.save` | `Ctrl+S` | 即エクスポート |
 | `shortcuts.undo` | `Ctrl+Z` | 元に戻す（ヘッダーの「元に戻す」ボタンと連動） |
 | `shortcuts.redo` / `redo_alternative` | `Ctrl+Y` / `Ctrl+Shift+Z` | やり直す（どちらでも可） |
-| `shortcuts.zoom_in` / `_out` / `_reset` | `Ctrl+Plus` / `Ctrl+Minus` / `Ctrl+0` | ズーム |
+| `shortcuts.zoom_in` / `_out` | `Ctrl+Plus` / `Ctrl+Minus` | ズームイン / アウト（カーソル位置基準） |
+| `shortcuts.fit` | `Ctrl+0` | 画面に合わせる（画像全体が収まる最大ズーム・中央寄せ。画像を開いた初期ズームもこれ） |
+| `shortcuts.zoom_reset` | `Ctrl+1` | 100% 表示 |
 | `shortcuts.toggle_grid` | `G` | グリッド切替 |
 | `shortcuts.pan` | `Space` | Space + ドラッグでパン |
 
@@ -279,3 +281,4 @@ theme:
 | Worker（`worker_pixel_threshold`） | MS6 |
 | 履歴（`history.*`） | 実装済み（Undo/Redo: `history.ts` + ヘッダーボタン + `Ctrl+Z`/`Ctrl+Y`） |
 | Zustand / Vitest | `feature/state-zustand` |
+| ビューポート範囲のみの合成 + 画面に合わせる（MS2） | 実装済み（`feature/viewport-region`）: `compositor.ts` が表示中ドキュメント範囲∩ダーティ矩形のみ合成。`shortcuts.fit` = `Ctrl+0` / `zoom_reset` = `Ctrl+1` |
