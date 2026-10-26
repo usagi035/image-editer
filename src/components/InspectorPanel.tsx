@@ -168,11 +168,11 @@ function ColorReplaceOptions() {
   const run = () => {
     if (!active) return;
     // 履歴上限の事前確認 → パッチステップとして記録（仕様書 4.6）
-    if (!confirmHistoryStep(active.canvas.width * active.canvas.height * 4 * 2)) {
+    if (!confirmHistoryStep(active.width * active.height * 4 * 2)) {
       return;
     }
     const mask = needSelection
-      ? buildSelectionMask(selection, active.canvas.width, active.canvas.height)
+      ? buildSelectionMask(selection, active.width, active.height)
       : null;
     historyBegin("色置換");
     historyCaptureLayer(active.id);

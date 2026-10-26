@@ -320,10 +320,8 @@ export default function CanvasViewport() {
       } else {
         const layer = layers.find((l) => l.id === activeLayerId);
         if (!layer) return;
-        const ctx = layer.canvas.getContext("2d");
-        if (!ctx) return;
-        const d = ctx.getImageData(p.x, p.y, 1, 1).data;
-        px = ((d[3] << 24) | (d[2] << 16) | (d[1] << 8) | d[0]) >>> 0;
+        if (p.x >= layer.width || p.y >= layer.height) return;
+        px = layer.pixels[p.y * layer.width + p.x];
       }
       setPrimaryColor(uint32ToHex(px));
     },
@@ -374,7 +372,7 @@ export default function CanvasViewport() {
         if (!layer) return;
         if (p.x < 0 || p.x >= docWidth || p.y < 0 || p.y >= docHeight) return;
         // 履歴上限の事前確認 → パッチステップとして記録（仕様書 4.6）
-        if (!confirmHistoryStep(layer.canvas.width * layer.canvas.height * 4 * 2)) {
+        if (!confirmHistoryStep(layer.width * layer.height * 4 * 2)) {
           return;
         }
         historyBegin("バケツ");
@@ -409,17 +407,13 @@ export default function CanvasViewport() {
           )
         );
       } else if (tool === "magicWand") {
-        // 魔術の杖: クリック点の同色領域を選択
+        // 魔術の杖: クリック点の同色領域を選択（レイヤー本体の Uint32Array を直接参照）
         const layer = layers.find((l) => l.id === activeLayerId);
         const p = docPointFromEvent(e);
         if (!layer) return;
-        const ctx = layer.canvas.getContext("2d", { willReadFrequently: true });
-        if (!ctx) return;
-        const img = ctx.getImageData(0, 0, docWidth, docHeight);
-        const pixels = new Uint32Array(img.data.buffer);
         setSelection(
           createWandSelection(
-            pixels,
+            layer.pixels,
             docWidth,
             docHeight,
             p.x,
@@ -435,11 +429,8 @@ export default function CanvasViewport() {
         const p = docPointFromEvent(e);
         if (!layer) return;
         if (p.x < 0 || p.x >= docWidth || p.y < 0 || p.y >= docHeight) return;
-        const ctx = layer.canvas.getContext("2d", { willReadFrequently: true });
-        if (!ctx) return;
-        const d = ctx.getImageData(p.x, p.y, 1, 1).data;
-        const px = ((d[3] << 24) | (d[2] << 16) | (d[1] << 8) | d[0]) >>> 0;
-        setReplaceFrom(uint32ToHex(px));
+        if (p.x >= layer.width || p.y >= layer.height) return;
+        setReplaceFrom(uint32ToHex(layer.pixels[p.y * layer.width + p.x]));
       }
       // crop / resize / hsv 等は各機能単位で実装
     },
