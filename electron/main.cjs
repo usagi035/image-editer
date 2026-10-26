@@ -38,15 +38,59 @@ function findBundledConfig() {
 }
 
 /**
- * ユーザー設定の場所（改訂版仕様書 2.1: app.getPath('userData')/config.yaml）。
+ * ポータブル版前提（exe 隣の data/）のユーザーデータ置き場。
+ * - electron-builder portable exe: `PORTABLE_EXECUTABLE_DIR`（一時展開先ではなく元の exe のフォルダ）
+ * - フォルダ版: exe のあるフォルダ（配布物ごと持ち運べば設定も追従）
+ * - 開発時 / 書き込み不可（読み取り専用媒体など）: 従来どおり `userData` へフォールバック
+ * 書き込み可否は実際に書けるかプローブして判定し、結果はキャッシュする。
+ */
+let dataDirCache = null;
+
+function resolveDataDir() {
+  if (dataDirCache) return dataDirCache;
+  const candidates = [];
+  const portableDir = process.env.PORTABLE_EXECUTABLE_DIR;
+  if (portableDir) {
+    // portable exe: 一時展開先（execPath）は消えるため使わない
+    candidates.push(path.join(portableDir, "data"));
+  } else if (app.isPackaged) {
+    // フォルダ版: exe のあるフォルダ
+    candidates.push(path.join(path.dirname(process.execPath), "data"));
+  }
+  try {
+    candidates.push(path.join(app.getPath("userData")));
+  } catch (err) {
+    console.error("[data] userData の取得失敗:", err);
+  }
+  for (const dir of candidates) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      const probe = path.join(dir, ".write-probe");
+      fs.writeFileSync(probe, "");
+      fs.rmSync(probe, { force: true });
+      dataDirCache = dir;
+      return dir;
+    } catch (err) {
+      console.warn("[data] 書き込み不可のため次の候補へ:", dir, err?.message);
+    }
+  }
+  dataDirCache = candidates[candidates.length - 1] || null;
+  return dataDirCache;
+}
+
+/**
+ * ユーザー設定の場所（ポータブル版前提: `<exe>/data/config.yaml`、
+ * 開発時・書き込み不可時は `app.getPath('userData')/config.yaml`）。
  * 存在しない場合は同梱の既定ファイルをコピーして生成する。
  */
 function ensureUserConfig() {
   let userPath = null;
   try {
-    userPath = path.join(app.getPath("userData"), "config.yaml");
+    const dir = resolveDataDir();
+    if (!dir) return null;
+    userPath = path.join(dir, "config.yaml");
   } catch (err) {
-    console.error("[config] userData の取得失敗:", err);
+    console.error("[config] data ディレクトリの取得失敗:", err);
     return null;
   }
   try {

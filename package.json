@@ -34,21 +34,21 @@
     "win": {
       "target": [
         {
-          "target": "nsis",
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "dir",
           "arch": [
             "x64"
           ]
         }
       ]
     },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "Image Editor",
-      "artifactName": "ImageEditor-Setup-${version}.${ext}"
+    "portable": {
+      "artifactName": "ImageEditor-Portable-${version}.${ext}"
     }
   },
   "dependencies": {

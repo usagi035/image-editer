@@ -60,7 +60,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // 1) Electron: userData/config.yaml（main プロセスが生成・優先される）
+      // 1) Electron: exe 隣の data/config.yaml（ポータブル版前提・main プロセスが生成・優先される）
       const electronText = await window.electronAPI?.loadConfig?.();
       if (electronText) {
         const { config: parsed, warnings } = parseConfig(electronText);

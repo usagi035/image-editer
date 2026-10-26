@@ -65,11 +65,26 @@ npm run electron       # Electron で起動
 
 開発時は `VITE_DEV_SERVER_URL=http://localhost:5173` を設定して起動すれば、起動中の `npm run dev` を読み込みます。
 
+### 配布（ポータブル版）
+
+**ポータブル版が前提**です（インストーラなし）。ビルド手順は [docs/HowToBuild.md](./docs/HowToBuild.md) を参照。
+
+```bash
+npm run build:exe
+```
+
+| 成果物 | 内容 |
+| :--- | :--- |
+| `release/ImageEditor-Portable-<version>.exe` | 単一 portable exe（ダブルクリックで自己展開・インストール不要） |
+| `release/win-unpacked/`（フォルダ一式） | フォルダ版（このフォルダごと USB メモリ等へ持ち運び可能） |
+
+どちらもユーザーデータ（`config.yaml` 等）は **exe の隣の `data/` フォルダ** に保存されるため、配布物ごと移動すれば設定も一緒に移動します（書き込み不可の場所・開発時は `%APPDATA%` へフォールバック）。
+
 ## 設定（`public/config.yaml`）
 
 アプリは起動時に `config.yaml` を読み込み、React Context（`ConfigContext`）経由で全コンポーネントへ提供します。
 
-- **読み込み順**: Electron（`userData/config.yaml` — 無ければ同梱の既定ファイルをコピー生成）→ Web（`public/config.yaml`）→ フォールバック既定値
+- **読み込み順**: Electron（**exe 隣の `data/config.yaml`** — ポータブル版前提。無ければ同梱の既定ファイルをコピー生成／開発時・書き込み不可は `userData/config.yaml`）→ Web（`public/config.yaml`）→ フォールバック既定値
 - **再読み込み**: ヘッダーの「設定再読み込み」ボタン（`config.yaml` を修正して即反映）
 - **不正値の扱い**: 型違い・範囲外・色書式エラーは既定値へフォールバックし、画面下部にトースト警告（上限超過はエラーダイアログで拒否）
 - **主な設定項目**
@@ -138,7 +153,7 @@ electron/
 ├── main.cjs          # メインプロセス（ウィンドウ / IPC / fs）
 └── preload.cjs       # contextBridge（electronAPI 公開）
 public/
-└── config.yaml       # 全設定のソース（Electron は userData/config.yaml が優先）
+└── config.yaml       # 全設定のソース（Electron は exe 隣の data/config.yaml が優先）
 ```
 
 ## 開発ルール
