@@ -1,5 +1,6 @@
 import { getA, getB, getG, getR, packRGBA } from "./colorUtils";
 import type { Layer } from "./layerUtils";
+import { pixelsToImageData } from "./layerUtils";
 import { buildSelectionMask } from "./selectionTools";
 import type { SelectionState } from "./types";
 
@@ -144,20 +145,14 @@ export function adjustPixels(
   }
 }
 
-/** レイヤーのピクセルへ調整を破壊的に適用する（適用ボタン用）。 */
+/** レイヤーのピクセル本体へ調整を破壊的に適用する（適用ボタン用・Canvas 非経由）。 */
 export function applyAdjustToLayer(
   layer: Layer,
   params: AdjustParams,
   mask: Uint8Array | null = null
 ): void {
   if (isIdentityAdjust(params)) return;
-  const ctx = layer.canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return;
-  const w = layer.canvas.width;
-  const h = layer.canvas.height;
-  const img = ctx.getImageData(0, 0, w, h);
-  adjustPixels(new Uint32Array(img.data.buffer), params, mask);
-  ctx.putImageData(img, 0, 0);
+  adjustPixels(layer.pixels, params, mask);
 }
 
 /** スコープ（レイヤー全体 / 選択範囲）からマスクを構築する。 */
@@ -231,29 +226,26 @@ export function getAdjustPreview(
   ctx.globalAlpha = 1;
 
   const targetIds = new Set(targets.map((t) => t.id));
-  // 調整対象レイヤー用の一時キャンバス（full res）
+  // レイヤーを描くための一時キャンバス（ループ内で再利用・保持しない）
   let tmp: HTMLCanvasElement | null = null;
 
   for (const layer of p.layers) {
     if (!layer.visible || layer.opacity <= 0) continue;
     ctx.globalAlpha = layer.opacity / 100;
-    if (targetIds.has(layer.id)) {
-      const w = layer.canvas.width;
-      const h = layer.canvas.height;
-      if (!tmp) tmp = document.createElement("canvas");
-      tmp.width = w;
-      tmp.height = h;
-      const tctx = tmp.getContext("2d", { willReadFrequently: true });
-      if (tctx) {
-        tctx.clearRect(0, 0, w, h);
-        tctx.drawImage(layer.canvas, 0, 0);
-        const img = tctx.getImageData(0, 0, w, h);
+    if (!tmp) tmp = document.createElement("canvas");
+    if (tmp.width !== layer.width || tmp.height !== layer.height) {
+      tmp.width = layer.width;
+      tmp.height = layer.height;
+    }
+    const tctx = tmp.getContext("2d", { willReadFrequently: true });
+    if (tctx) {
+      tctx.putImageData(pixelsToImageData(layer.pixels, layer.width, layer.height), 0, 0);
+      if (targetIds.has(layer.id)) {
+        const img = tctx.getImageData(0, 0, layer.width, layer.height);
         adjustPixels(new Uint32Array(img.data.buffer), p.params, mask);
         tctx.putImageData(img, 0, 0);
-        ctx.drawImage(tmp, 0, 0, pw, ph);
       }
-    } else {
-      ctx.drawImage(layer.canvas, 0, 0, pw, ph);
+      ctx.drawImage(tmp, 0, 0, pw, ph);
     }
   }
   ctx.globalAlpha = 1;

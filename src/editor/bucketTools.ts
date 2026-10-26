@@ -135,7 +135,7 @@ export function applyFill(
   }
 }
 
-/** レイヤーへバケツ処理を適用する（getImageData → Uint32Array 操作 → putImageData）。 */
+/** レイヤーのピクセル本体へバケツ処理を適用する（Uint32Array 直接操作・Canvas 非経由）。 */
 export function applyBucketToLayer(
   layer: Layer,
   mode: BucketMode,
@@ -143,14 +143,7 @@ export function applyBucketToLayer(
   start: { x: number; y: number },
   mask?: Uint8Array | null
 ): boolean {
-  const ctx = layer.canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return false;
-  const width = layer.canvas.width;
-  const height = layer.canvas.height;
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const pixels = new Uint32Array(imageData.data.buffer);
-  applyFill(pixels, width, height, start.x, start.y, mode, params, mask);
-  ctx.putImageData(imageData, 0, 0);
+  applyFill(layer.pixels, layer.width, layer.height, start.x, start.y, mode, params, mask);
   return true;
 }
 
@@ -165,12 +158,7 @@ export function replaceColorInLayer(
   tolerance: number,
   mask?: Uint8Array | null
 ): boolean {
-  const ctx = layer.canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return false;
-  const width = layer.canvas.width;
-  const height = layer.canvas.height;
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const pixels = new Uint32Array(imageData.data.buffer);
+  const pixels = layer.pixels;
   const fr = getR(from);
   const fg = getG(from);
   const fb = getB(from);
@@ -181,6 +169,5 @@ export function replaceColorInLayer(
       pixels[i] = to;
     }
   }
-  ctx.putImageData(imageData, 0, 0);
   return true;
 }

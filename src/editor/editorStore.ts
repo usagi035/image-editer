@@ -20,7 +20,17 @@ import {
   renderExportCanvas,
   resizeLayers,
 } from "./ioTools";
-import { cloneLayer, createBlankLayer, type Layer } from "./layerUtils";
+import {
+  bytesToUint32,
+  cloneLayer,
+  createBlankLayer,
+  canvasToPixels,
+  pixelsToCanvas,
+  rectBytes,
+  scalePixels,
+  writeRectBytes,
+  type Layer,
+} from "./layerUtils";
 import {
   HistoryEngine,
   type HistoryHost,
@@ -504,16 +514,20 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     const src = layers[index];
     const dst = layers[index - 1];
     // 履歴上限の事前確認（仕様書 4.6: 下層は全域書き換えになる）
-    if (!get().confirmHistoryStep(dst.canvas.width * dst.canvas.height * 4 * 2)) {
+    if (!get().confirmHistoryStep(dst.width * dst.height * 4 * 2)) {
       return;
     }
     historyEngine.beginStep("レイヤー統合");
     historyEngine.noteRemovedLayer(src.id); // Undo でレイヤーごと復元
     historyEngine.captureLayerBefore(dst.id); // 下層の書き換えをパッチで記録
-    const ctx = dst.canvas.getContext("2d")!;
+    // source-over 統合（従来の drawImage と同一結果）。一時 Canvas は保持しない。
+    const base = pixelsToCanvas(dst.pixels, dst.width, dst.height);
+    const over = pixelsToCanvas(src.pixels, src.width, src.height);
+    const ctx = base.getContext("2d")!;
     ctx.globalAlpha = src.opacity / 100;
-    ctx.drawImage(src.canvas, 0, 0);
+    ctx.drawImage(over, 0, 0);
     ctx.globalAlpha = 1;
+    dst.pixels = canvasToPixels(base).pixels;
     markDirty(); // レイヤー統合 → ビューポート全体を再合成
     set({
       layers: layers.filter((l) => l.id !== src.id),
@@ -653,9 +667,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     const targets = s.layers.filter((l) => l.id === s.activeLayerId);
     for (const layer of targets) {
       // 履歴上限の事前確認（仕様書 4.6）
-      if (
-        !get().confirmHistoryStep(layer.canvas.width * layer.canvas.height * 4 * 2)
-      ) {
+      if (!get().confirmHistoryStep(layer.width * layer.height * 4 * 2)) {
         return;
       }
     }
@@ -665,8 +677,8 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
       const mask = buildAdjustMask(
         s.adjustScope,
         s.selection,
-        layer.canvas.width,
-        layer.canvas.height
+        layer.width,
+        layer.height
       );
       applyAdjustToLayer(layer, s.adjust, mask);
     }
@@ -780,19 +792,16 @@ const historyHost: HistoryHost = {
     const s = useEditorStore.getState();
     const l = s.layers.find((x) => x.id === layerId);
     if (!l) return null;
-    const w = l.canvas.width;
-    const h = l.canvas.height;
-    const data = l.canvas
-      .getContext("2d", { willReadFrequently: true })!
-      .getImageData(0, 0, w, h);
+    // レイヤー本体（Uint32Array）は RGBA バイト列としてそのまま複製できる
+    const copy = l.pixels.slice();
     return {
       id: l.id,
       name: l.name,
       visible: l.visible,
       opacity: l.opacity,
-      width: w,
-      height: h,
-      pixels: data.data,
+      width: l.width,
+      height: l.height,
+      pixels: new Uint8ClampedArray(copy.buffer),
     };
   },
 
@@ -800,26 +809,14 @@ const historyHost: HistoryHost = {
     const s = useEditorStore.getState();
     const l = s.layers.find((x) => x.id === layerId);
     if (!l) return null;
-    const x = Math.max(0, Math.floor(rect.x));
-    const y = Math.max(0, Math.floor(rect.y));
-    const w = Math.min(l.canvas.width, rect.x + rect.w) - x;
-    const h = Math.min(l.canvas.height, rect.y + rect.h) - y;
-    if (w <= 0 || h <= 0) return null;
-    return l.canvas.getContext("2d", { willReadFrequently: true })!.getImageData(x, y, w, h)
-      .data;
+    return rectBytes(l.pixels, l.width, l.height, rect);
   },
 
   applyRect(layerId, rect, data) {
     const s = useEditorStore.getState();
     const l = s.layers.find((x) => x.id === layerId);
     if (!l) return;
-    l.canvas
-      .getContext("2d")!
-      .putImageData(
-        new ImageData(data, rect.w, rect.h),
-        Math.floor(rect.x),
-        Math.floor(rect.y)
-      );
+    writeRectBytes(l.pixels, l.width, l.height, rect, data);
   },
 
   applyDocument(snapshot, contentById) {
@@ -831,40 +828,39 @@ const historyHost: HistoryHost = {
       if (
         existing &&
         !content &&
-        existing.canvas.width === snapshot.width &&
-        existing.canvas.height === snapshot.height
+        existing.width === snapshot.width &&
+        existing.height === snapshot.height
       ) {
-        return { ...meta, canvas: existing.canvas }; // サイズ一致なら再利用（画素はパッチで復元）
+        // サイズ一致なら画素配列をそのまま再利用（画素はパッチで復元される）
+        return { ...meta, pixels: existing.pixels, width: existing.width, height: existing.height };
       }
-      const canvas = document.createElement("canvas");
-      canvas.width = snapshot.width;
-      canvas.height = snapshot.height;
-      const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+      let pixels: Uint32Array;
       if (content) {
         if (content.width === snapshot.width && content.height === snapshot.height) {
-          ctx.putImageData(
-            new ImageData(content.pixels, content.width, content.height),
-            0,
-            0
-          );
+          // 履歴のバッファとは独立した配列にする（復元後に履歴を書き換えない）
+          pixels = bytesToUint32(content.pixels).slice();
         } else {
-          // コンテンツ寸法と目標が異なる場合は一時 Canvas 経由で縮小/拡大
-          const tmp = document.createElement("canvas");
-          tmp.width = content.width;
-          tmp.height = content.height;
-          tmp
-            .getContext("2d")!
-            .putImageData(
-              new ImageData(content.pixels, content.width, content.height),
-              0,
-              0
-            );
-          ctx.drawImage(tmp, 0, 0, snapshot.width, snapshot.height);
+          // コンテンツ寸法と目標が異なる場合はスケールして復元
+          pixels = scalePixels(
+            bytesToUint32(content.pixels),
+            content.width,
+            content.height,
+            snapshot.width,
+            snapshot.height
+          ).pixels;
         }
       } else if (existing) {
-        ctx.drawImage(existing.canvas, 0, 0, snapshot.width, snapshot.height);
+        pixels = scalePixels(
+          existing.pixels,
+          existing.width,
+          existing.height,
+          snapshot.width,
+          snapshot.height
+        ).pixels;
+      } else {
+        pixels = new Uint32Array(snapshot.width * snapshot.height);
       }
-      return { ...meta, canvas };
+      return { ...meta, pixels, width: snapshot.width, height: snapshot.height };
     });
     const sizeChanged =
       s.docWidth !== snapshot.width || s.docHeight !== snapshot.height;

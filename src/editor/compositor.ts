@@ -1,4 +1,5 @@
 import type { Layer } from "./layerUtils";
+import { getA, getB, getG, getR, packRGBA } from "./colorUtils";
 import type { Rect, ViewState } from "./types";
 
 /**
@@ -196,6 +197,60 @@ export function getComposite(
   return { canvas, region, regionKey, revision };
 }
 
+// ============ ピクセル → 描画用ソース（範囲のみ・常設 Canvas 禁止） ============
+
+/**
+ * 合成用の一時キャンバス / ImageData（**表示中範囲のソースだけ**を保持し、
+ * 画像全体サイズには絶対に広げない。呼び出し間で再利用される）。
+ */
+let sourceCanvas: HTMLCanvasElement | null = null;
+let sourceImage: ImageData | null = null;
+
+/**
+ * rect（doc 座標）のレイヤー内容を描画用ソースキャンバスへ移す。
+ * 縮小表示（scale < 1）時は k ピクセルおきに間引いてソース寸法を画面サイズに抑える
+ * （1/16 ズームで 8192² をそのまま作らないため）。最近傍サンプリングは drawImage 側で行う。
+ */
+function layerSource(
+  layer: Layer,
+  rect: Rect,
+  scale: number
+): HTMLCanvasElement | null {
+  if (rect.w <= 0 || rect.h <= 0) return null;
+  const k = scale >= 1 ? 1 : Math.max(1, Math.round(1 / scale));
+  const sw = Math.ceil(rect.w / k);
+  const sh = Math.ceil(rect.h / k);
+  if (!sourceCanvas) sourceCanvas = document.createElement("canvas");
+  if (sourceCanvas.width !== sw || sourceCanvas.height !== sh) {
+    sourceCanvas.width = sw;
+    sourceCanvas.height = sh;
+  }
+  if (!sourceImage || sourceImage.width !== sw || sourceImage.height !== sh) {
+    sourceImage = new ImageData(sw, sh);
+  }
+  const u32 = new Uint32Array(sourceImage.data.buffer);
+  const lw = layer.width;
+  if (k === 1) {
+    // 等倍: 行コピーのみ（JS ループを回避）
+    for (let row = 0; row < sh; row++) {
+      const srcRow = (rect.y + row) * lw + rect.x;
+      u32.set(layer.pixels.subarray(srcRow, srcRow + sw), row * sw);
+    }
+  } else {
+    for (let row = 0; row < sh; row++) {
+      const srcRow = (rect.y + row * k) * lw + rect.x;
+      const dstRow = row * sw;
+      for (let col = 0; col < sw; col++) {
+        u32[dstRow + col] = layer.pixels[srcRow + col * k];
+      }
+    }
+  }
+  const ctx = sourceCanvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.putImageData(sourceImage, 0, 0);
+  return sourceCanvas;
+}
+
 /** キャンバス座標で target 領域をクリアしてからレイヤーを合成する */
 function compositeRegion(
   canvas: HTMLCanvasElement,
@@ -215,41 +270,81 @@ function compositeRegion(
   ctx.beginPath();
   ctx.rect(ox, oy, target.w, target.h);
   ctx.clip();
+  const scale = view.zoom * dpr;
   // doc 座標 → キャンバス座標（キャンバス原点 = region 左上）
   ctx.setTransform(
-    view.zoom * dpr,
+    scale,
     0,
     0,
-    view.zoom * dpr,
+    scale,
     view.panX * dpr - region.x,
     view.panY * dpr - region.y
   );
   ctx.imageSmoothingEnabled = false;
+  // 再合成対象（target）に写るドキュメント範囲だけを切り出す
+  const docRect = deviceToDocRect(target, view, dpr);
   // 下層 → 上層の順にアルファブレンド
   for (const layer of layers) {
     if (!layer.visible || layer.opacity <= 0) continue;
+    const rect = intersectLayerRect(docRect, layer);
+    if (!rect) continue;
+    const src = layerSource(layer, rect, scale);
+    if (!src) continue;
     ctx.globalAlpha = layer.opacity / 100;
-    ctx.drawImage(layer.canvas, 0, 0);
+    ctx.drawImage(src, rect.x, rect.y, rect.w, rect.h);
   }
   ctx.globalAlpha = 1;
   ctx.restore();
 }
 
+/** 画面デバイス座標の矩形が写すドキュメント範囲（整数・レイヤー境界でクランプ） */
+function deviceToDocRect(r: Rect, view: ViewState, dpr: number): Rect {
+  const scale = view.zoom * dpr;
+  const ox = view.panX * dpr;
+  const oy = view.panY * dpr;
+  return {
+    x: Math.floor((r.x - ox) / scale),
+    y: Math.floor((r.y - oy) / scale),
+    w: Math.ceil((r.x + r.w - ox) / scale) - Math.floor((r.x - ox) / scale),
+    h: Math.ceil((r.y + r.h - oy) / scale) - Math.floor((r.y - oy) / scale),
+  };
+}
+
+function intersectLayerRect(r: Rect, layer: Layer): Rect | null {
+  const x = Math.max(0, r.x);
+  const y = Math.max(0, r.y);
+  const w = Math.min(layer.width, r.x + r.w) - x;
+  const h = Math.min(layer.height, r.y + r.h) - y;
+  if (w <= 0 || h <= 0) return null;
+  return { x, y, w, h };
+}
+
 /**
  * 指定 doc 座標の合成色を 1px だけ取得する（スポイト用）。
- * 画像全体サイズの合成 Canvas を作らずに済む（仕様書 2.2 表示）。
+ * Canvas を一切使わず、Uint32Array から source-over を直接計算する（仕様書 2.2 表示）。
  */
 export function sampleMergedPixel(layers: Layer[], x: number, y: number): number {
-  const canvas = document.createElement("canvas");
-  canvas.width = 1;
-  canvas.height = 1;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return 0;
+  // straight alpha の合成色（0〜255 / 0〜1）
+  let sr = 0;
+  let sg = 0;
+  let sb = 0;
+  let sa = 0;
   for (const layer of layers) {
     if (!layer.visible || layer.opacity <= 0) continue;
-    ctx.globalAlpha = layer.opacity / 100;
-    ctx.drawImage(layer.canvas, x, y, 1, 1, 0, 0, 1, 1);
+    if (x < 0 || y < 0 || x >= layer.width || y >= layer.height) continue;
+    const px = layer.pixels[y * layer.width + x];
+    const alpha = (getA(px) / 255) * (layer.opacity / 100);
+    if (alpha <= 0) continue;
+    const outA = alpha + sa * (1 - alpha);
+    if (outA <= 0) {
+      sr = sg = sb = sa = 0;
+      continue;
+    }
+    sr = (getR(px) * alpha + sr * sa * (1 - alpha)) / outA;
+    sg = (getG(px) * alpha + sg * sa * (1 - alpha)) / outA;
+    sb = (getB(px) * alpha + sb * sa * (1 - alpha)) / outA;
+    sa = outA;
   }
-  const d = ctx.getImageData(0, 0, 1, 1).data;
-  return ((d[3] << 24) | (d[2] << 16) | (d[1] << 8) | d[0]) >>> 0;
+  if (sa <= 0) return 0;
+  return packRGBA(Math.round(sr), Math.round(sg), Math.round(sb), Math.round(sa * 255));
 }
