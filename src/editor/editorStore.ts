@@ -28,6 +28,8 @@ import {
   type StructureSnapshot,
 } from "./history";
 import { MemoryBudget } from "./memoryBudget";
+import { markDirty } from "./compositor";
+import { fitViewState } from "./types";
 import type { EditorContextValue, ReplaceScope } from "./EditorContext";
 
 /**
@@ -156,6 +158,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     resizeLayers(s.layers, nw, nh);
     for (const l of s.layers) historyEngine.noteAddedLayer(l.id);
     historyEngine.commitStep();
+    markDirty(); // ドキュメントサイズ変更 → ビューポート全体を再合成
     set({
       layers: [...s.layers],
       docWidth: nw,
@@ -191,6 +194,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
       s.config.canvas.background_color
     );
     historyEngine.clear(); // 新規ドキュメントで履歴をリセット
+    markDirty();
     set({
       docWidth: nw,
       docHeight: nh,
@@ -225,6 +229,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     }
     const layer = layerFromImage(img);
     historyEngine.clear(); // 読み込みで履歴をリセット
+    markDirty();
     set({
       docWidth: nw,
       docHeight: nh,
@@ -235,6 +240,8 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
       revision: s.revision + 1,
     });
     set(historySync());
+    // 画像を開いたときの初期ズームは「画面に合わせる」（仕様書 3）
+    get().fitZoom();
   },
 
   cropDocument(x, y, w, h) {
@@ -251,6 +258,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     for (const l of s.layers) historyEngine.noteRemovedLayer(l.id);
     cropLayers(s.layers, sx, sy, sw, sh);
     for (const l of s.layers) historyEngine.noteAddedLayer(l.id);
+    markDirty(); // ドキュメントサイズ変更 → ビューポート全体を再合成
     set({
       layers: [...s.layers],
       docWidth: sw,
@@ -383,6 +391,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     const next = [...s.layers];
     next.splice(insertAt, 0, layer);
     historyEngine.beginStep("レイヤー追加");
+    markDirty(); // レイヤー構成変更 → ビューポート全体を再合成
     set({
       layers: next,
       activeLayerId: layer.id,
@@ -416,6 +425,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     const next = [...s.layers];
     next.splice(index + 1, 0, copy);
     historyEngine.beginStep("レイヤー複製");
+    markDirty(); // レイヤー構成変更 → ビューポート全体を再合成
     set({
       layers: next,
       activeLayerId: copy.id,
@@ -437,6 +447,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
         layers = layers.filter((l) => l.id !== id);
       }
     }
+    markDirty(); // レイヤー構成変更 → ビューポート全体を再合成
     set({ layers, revision: s.revision + 1 });
     historyEngine.commitStep();
     set(historySync());
@@ -452,6 +463,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
       layers = [...layers];
       [layers[index], layers[target]] = [layers[target], layers[index]];
     }
+    markDirty(); // レイヤー構成変更 → ビューポート全体を再合成
     set({ layers, revision: s.revision + 1 });
     historyEngine.commitStep();
     set(historySync());
@@ -461,6 +473,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     const s = get();
     const v = clamp(Math.round(opacity), 0, 100);
     historyEngine.beginStep("不透明度");
+    markDirty(); // 合成結果が全体に変わる → ビューポート全体を再合成
     set({
       layers: s.layers.map((l) => (l.id === id ? { ...l, opacity: v } : l)),
       revision: s.revision + 1,
@@ -472,6 +485,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
   toggleLayerVisible(id) {
     const s = get();
     historyEngine.beginStep("表示切替");
+    markDirty(); // 合成結果が全体に変わる → ビューポート全体を再合成
     set({
       layers: s.layers.map((l) =>
         l.id === id ? { ...l, visible: !l.visible } : l
@@ -500,6 +514,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     ctx.globalAlpha = src.opacity / 100;
     ctx.drawImage(src.canvas, 0, 0);
     ctx.globalAlpha = 1;
+    markDirty(); // レイヤー統合 → ビューポート全体を再合成
     set({
       layers: layers.filter((l) => l.id !== src.id),
       activeLayerId: dst.id,
@@ -510,7 +525,14 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
   },
 
   revision: 0,
-  bumpRevision: () => set((s) => ({ revision: s.revision + 1 })),
+  /**
+   * ピクセル変更時の再描画要求（仕様書 7 性能）。
+   * rect を渡すと「その範囲 ∩ ビューポート」のみ再合成される（範囲不明 = ビューポート全体）。
+   */
+  bumpRevision: (rect) => {
+    markDirty(rect);
+    set((s) => ({ revision: s.revision + 1 }));
+  },
 
   // メモリ使用量は EditorProvider が状態変化のたびに再計算する
   memoryUsage: new MemoryBudget(DEFAULT_CONFIG.memory.budget_mb).estimate({
@@ -527,10 +549,12 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
 
   undo() {
     if (!historyEngine.undo()) return;
+    markDirty(); // 復元範囲はステップにより異なる → ビューポート全体を再合成
     set((s) => ({ revision: s.revision + 1, ...historySync() }));
   },
   redo() {
     if (!historyEngine.redo()) return;
+    markDirty(); // 再適用範囲はステップにより異なる → ビューポート全体を再合成
     set((s) => ({ revision: s.revision + 1, ...historySync() }));
   },
 
@@ -648,6 +672,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     }
     historyEngine.commitStep();
     const d = s.config.tools.adjustment;
+    markDirty(); // 色調整適用 → ビューポート全体を再合成
     set({
       revision: s.revision + 1,
       adjust: {
@@ -714,6 +739,20 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     const docX = (ax - v.panX) / v.zoom;
     const docY = (ay - v.panY) / v.zoom;
     set({ view: { ...v, zoom: next, panX: ax - docX * next, panY: ay - docY * next } });
+  },
+  /** 画面に合わせる: 画像全体が収まる最大ズームで中央表示（仕様書 3） */
+  fitZoom() {
+    const s = get();
+    if (s.viewportSize.w <= 0 || s.viewportSize.h <= 0) return;
+    const fit = fitViewState(
+      s.viewportSize.w,
+      s.viewportSize.h,
+      s.docWidth,
+      s.docHeight,
+      s.config.canvas.zoom_min,
+      s.config.canvas.zoom_max
+    );
+    set({ view: { ...s.view, ...fit } });
   },
   toggleGrid: () => set((s) => ({ view: { ...s.view, showGrid: !s.view.showGrid } })),
 }));
@@ -829,6 +868,7 @@ const historyHost: HistoryHost = {
     });
     const sizeChanged =
       s.docWidth !== snapshot.width || s.docHeight !== snapshot.height;
+    markDirty(); // 構造スナップショット復元 → ビューポート全体を再合成
     useEditorStore.setState({
       layers,
       activeLayerId: snapshot.activeLayerId,

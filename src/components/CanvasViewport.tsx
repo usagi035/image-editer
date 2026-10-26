@@ -6,13 +6,17 @@ import {
   isIdentityAdjust,
   type AdjustPreviewCache,
 } from "../editor/adjustTools";
-import { getComposite } from "../editor/compositor";
+import {
+  getComposite,
+  sampleMergedPixel,
+} from "../editor/compositor";
 import { applyBucketToLayer } from "../editor/bucketTools";
 import { hexToUint32, uint32ToHex } from "../editor/colorUtils";
 import {
   beginStroke,
   continueStroke,
   endStroke,
+  segmentBounds,
   type StrokeSession,
 } from "../editor/drawTools";
 import { isTypingTarget, matchesShortcut } from "../editor/shortcuts";
@@ -21,7 +25,10 @@ import {
   createRectSelection,
   createWandSelection,
 } from "../editor/selectionTools";
-import { renderViewport } from "../editor/viewportRenderer";
+import {
+  renderViewport,
+  type ViewportRenderParams,
+} from "../editor/viewportRenderer";
 import { viewToDoc, type DocPoint } from "../editor/types";
 
 /**
@@ -119,16 +126,15 @@ export default function CanvasViewport() {
     return () => ro.disconnect();
   }, [setViewportSize]);
 
-  // --- 描画（レイヤー合成は revision ベースでキャッシュ） ---
+  // --- 描画（rAF でまとめ、ビューポート範囲 ∩ ダーティ矩形のみ合成: 仕様書 7 / 2.2） ---
+  const drawParamsRef = useRef<Omit<ViewportRenderParams, "ctx"> | null>(null);
+  const rafRef = useRef<number | null>(null);
+
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || size.w === 0 || size.h === 0) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (size.w === 0 || size.h === 0) return;
     // 色調整ツールでパラメータが変化している時はリアルタイムプレビュー（仕様書 4.4）
     const previewing = tool === "hsv" && !isIdentityAdjust(adjust);
-    renderViewport({
-      ctx,
+    drawParamsRef.current = {
       cssWidth: size.w,
       cssHeight: size.h,
       dpr: window.devicePixelRatio,
@@ -152,15 +158,33 @@ export default function CanvasViewport() {
           docCtx.drawImage(adjustPreviewRef.current.canvas, 0, 0, docWidth, docHeight);
           return;
         }
-        compositeRef.current = getComposite(
-          compositeRef.current,
+        // ビューポート範囲のみ合成（画像全体サイズの Canvas は作らない。仕様書 2.2）
+        const cache = getComposite(compositeRef.current, {
           layers,
+          revision,
+          view,
+          cssWidth: size.w,
+          cssHeight: size.h,
+          dpr: window.devicePixelRatio,
           docWidth,
           docHeight,
-          revision
-        );
-        docCtx.drawImage(compositeRef.current.canvas, 0, 0);
+        });
+        compositeRef.current = cache;
+        if (cache.region.w > 0 && cache.region.h > 0) {
+          // キャンバスは画面デバイス解像度 → デバイス座標で等倍描画（ズーム変更分は合成側で再計算済み）
+          docCtx.setTransform(1, 0, 0, 1, 0, 0);
+          docCtx.drawImage(cache.canvas, cache.region.x, cache.region.y);
+        }
       },
+    };
+    // 同一フレーム内の複数の状態変化は 1 回の描画にまとめる
+    if (rafRef.current !== null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      const p = drawParamsRef.current;
+      const ctx = canvasRef.current?.getContext("2d");
+      if (!p || !ctx) return;
+      renderViewport({ ...p, ctx });
     });
   }, [
     size,
@@ -176,6 +200,14 @@ export default function CanvasViewport() {
     adjustScope,
     activeLayerId,
   ]);
+
+  // アンマウント時の予約済み rAF 解放
+  useEffect(
+    () => () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    },
+    []
+  );
 
   // --- ホイールズーム（preventDefault のため非 passive で購読） ---
   useEffect(() => {
@@ -238,6 +270,7 @@ export default function CanvasViewport() {
       const layer = layers.find((l) => l.id === activeLayerId);
       if (!layer) return false;
       const erase = tool === "eraser";
+      const start = docPointFromEvent(e);
       const session = beginStroke(
         layer,
         {
@@ -248,13 +281,14 @@ export default function CanvasViewport() {
           // 選択領域外へのペイントを遮断（仕様書 4.3）
           mask: buildSelectionMask(selection, docWidth, docHeight),
         },
-        docPointFromEvent(e)
+        start
       );
       if (!session) return false;
       strokeRef.current = session;
       strokeLayerIdRef.current = layer.id;
       historyBegin(erase ? "消しゴム" : "描画"); // 1 ストローク = 1 ステップ（仕様書 4.6）
-      bumpRevision();
+      // 1 点ぶんの押印範囲のみダーティ登録（ストローク全体 bbox ではない）
+      bumpRevision(segmentBounds(start, start, session.size));
       return true;
     },
     [
@@ -278,42 +312,28 @@ export default function CanvasViewport() {
   const sampleColor = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       const p = docPointFromEvent(e);
-      const { sample_merged } = config.tools.eyedropper;
-      let canvas: HTMLCanvasElement;
-      if (sample_merged) {
-        const cache = getComposite(
-          compositeRef.current,
-          layers,
-          docWidth,
-          docHeight,
-          revision
-        );
-        compositeRef.current = cache;
-        canvas = cache.canvas;
+      if (p.x < 0 || p.y < 0 || p.x >= docWidth || p.y >= docHeight) return;
+      let px: number;
+      if (config.tools.eyedropper.sample_merged) {
+        // 合成色は 1px だけ取得（画像全体の合成 Canvas は作らない。仕様書 2.2）
+        px = sampleMergedPixel(layers, p.x, p.y);
       } else {
         const layer = layers.find((l) => l.id === activeLayerId);
         if (!layer) return;
-        canvas = layer.canvas;
+        const ctx = layer.canvas.getContext("2d");
+        if (!ctx) return;
+        const d = ctx.getImageData(p.x, p.y, 1, 1).data;
+        px = ((d[3] << 24) | (d[2] << 16) | (d[1] << 8) | d[0]) >>> 0;
       }
-      if (p.x < 0 || p.x >= canvas.width || p.y < 0 || p.y >= canvas.height)
-        return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      const d = ctx.getImageData(p.x, p.y, 1, 1).data;
-      const hex = uint32ToHex(
-        ((d[3] << 24) | (d[2] << 16) | (d[1] << 8) | d[0]) >>> 0
-      );
-      setPrimaryColor(hex);
+      setPrimaryColor(uint32ToHex(px));
     },
     [
       activeLayerId,
       config.tools.eyedropper,
-      compositeRef,
       docHeight,
       docPointFromEvent,
       docWidth,
       layers,
-      revision,
       setPrimaryColor,
     ]
   );
@@ -476,9 +496,12 @@ export default function CanvasViewport() {
         return;
       }
       const session = strokeRef.current;
-      if (session) {
-        continueStroke(session, docPointFromEvent(e));
-        bumpRevision();
+      if (session && session.prev) {
+        const target = docPointFromEvent(e);
+        // この移動分で押印される線分の外接矩形だけをダーティ登録（仕様書 7 性能）
+        const seg = segmentBounds(session.prev, target, session.size);
+        continueStroke(session, target);
+        bumpRevision(seg);
       }
     },
     [bumpRevision, docHeight, docPointFromEvent, docWidth, setSelection, setView]

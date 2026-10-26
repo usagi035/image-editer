@@ -10,7 +10,13 @@ import type { Layer } from "./layerUtils";
 import { MemoryBudget, type MemoryUsage } from "./memoryBudget";
 import { useEditorStore } from "./editorStore";
 import { isTypingTarget, matchesShortcut } from "./shortcuts";
-import type { SelectionState, ToolId, ViewportSize, ViewState } from "./types";
+import type {
+  Rect,
+  SelectionState,
+  ToolId,
+  ViewportSize,
+  ViewState,
+} from "./types";
 
 /**
  * エディタ公開 API（改訂版仕様書 1: 状態管理は Zustand）。
@@ -86,7 +92,8 @@ export interface EditorContextValue {
   mergeDown: (id: string) => void;
   /** ピクセル変更時の再描画要求カウンタ */
   revision: number;
-  bumpRevision: () => void;
+  /** ピクセル変更時の再描画要求。rect 指定で「その範囲 ∩ ビューポート」のみ再合成 */
+  bumpRevision: (rect?: Rect | null) => void;
   /** メモリ使用量（仕様書 3 のヘッダー表示 / 2.2 の予算管理） */
   memoryUsage: MemoryUsage;
 
@@ -147,6 +154,8 @@ export interface EditorContextValue {
   setZoom: (zoom: number, anchor?: { x: number; y: number }) => void;
   zoomBy: (factor: number, anchor?: { x: number; y: number }) => void;
   resetZoom: () => void;
+  /** 画面に合わせる（画像全体が収まる最大ズーム・中央寄せ。仕様書 3） */
+  fitZoom: () => void;
   toggleGrid: () => void;
 }
 
@@ -219,6 +228,9 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       } else if (matchesShortcut(e, config.shortcuts.zoom_out)) {
         e.preventDefault();
         store.zoomBy(1 / config.ui.zoom_step);
+      } else if (matchesShortcut(e, config.shortcuts.fit)) {
+        e.preventDefault();
+        store.fitZoom();
       } else if (matchesShortcut(e, config.shortcuts.zoom_reset)) {
         e.preventDefault();
         store.resetZoom();

@@ -36,6 +36,41 @@ export interface DocPoint {
 }
 
 /**
+ * 矩形（座標系は使用箇所の文脈による: ドキュメント座標 / 画面デバイス座標）。
+ * 合成のダーティ矩形・ビューポート範囲の共有に使用する。
+ */
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * 「画面に合わせる」のズーム状態を計算（仕様書 3: 画像全体が収まる最大ズーム・中央寄せ）。
+ * viewportW/H は CSS px、docWidth/H はドキュメント寸法。
+ */
+export function fitViewState(
+  viewportW: number,
+  viewportH: number,
+  docWidth: number,
+  docHeight: number,
+  zoomMin: number,
+  zoomMax: number
+): { zoom: number; panX: number; panY: number } {
+  const raw =
+    docWidth > 0 && docHeight > 0 && viewportW > 0 && viewportH > 0
+      ? Math.min(viewportW / docWidth, viewportH / docHeight)
+      : 1;
+  const zoom = Math.min(zoomMax, Math.max(zoomMin, raw));
+  return {
+    zoom,
+    panX: (viewportW - docWidth * zoom) / 2,
+    panY: (viewportH - docHeight * zoom) / 2,
+  };
+}
+
+/**
  * 選択状態（仕様書 4.3）
  * - rect: 矩形選択（bbox のみ管理、mask は null）
  * - wand: 魔術の杖（doc サイズの Uint8Array マスク + 着色用 tint キャンバス）
