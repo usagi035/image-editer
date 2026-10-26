@@ -82,3 +82,11 @@ export function runReplaceJob(
 ): JobHandle {
   return runPixelJob({ kind: "replace", ...job }, onProgress);
 }
+
+/** 図形ジョブを Worker で実行する */
+export function runShapeJob(
+  job: Omit<Extract<PixelJobMessage, { kind: "shape" }>, "kind">,
+  onProgress?: (progress: number) => void
+): JobHandle {
+  return runPixelJob({ kind: "shape", ...job }, onProgress);
+}

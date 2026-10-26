@@ -1,13 +1,16 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Circle,
   Contrast,
   Crop,
   Eraser,
+  Minus,
   PaintBucket,
   Pencil,
   Pipette,
   Replace,
   Scaling,
+  Square,
   SquareDashed,
   Wand,
 } from "lucide-react";
@@ -27,6 +30,9 @@ const TOOLS: ToolDef[] = [
   { id: "eraser", icon: Eraser, label: "消しゴム", group: 1 },
   { id: "bucket", icon: PaintBucket, label: "バケツ", group: 1 },
   { id: "eyedropper", icon: Pipette, label: "スポイト", group: 1 },
+  { id: "line", icon: Minus, label: "直線", group: 1 },
+  { id: "rect", icon: Square, label: "矩形", group: 1 },
+  { id: "ellipse", icon: Circle, label: "楕円", group: 1 },
   // 2: 範囲選択・色置換・切り抜き
   { id: "colorReplace", icon: Replace, label: "色置換", group: 2 },
   { id: "rectSelect", icon: SquareDashed, label: "矩形選択", group: 2 },

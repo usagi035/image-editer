@@ -26,7 +26,13 @@ import {
   createWandSelection,
 } from "../editor/selectionTools";
 import {
+  constrainShapeEnd,
+  mirrorShapes,
+  type ShapeKind,
+} from "../editor/shapeTools";
+import {
   renderViewport,
+  type ShapePreviewOverlay,
   type ViewportRenderParams,
 } from "../editor/viewportRenderer";
 import { viewToDoc, type DocPoint } from "../editor/types";
@@ -70,6 +76,8 @@ export default function CanvasViewport() {
     applySelectionOperation,
     floatingRect,
     setFloatingPos,
+    shape,
+    runShape,
   } = useEditor();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -89,6 +97,13 @@ export default function CanvasViewport() {
     fx: number;
     fy: number;
   } | null>(null);
+  /** 図形ツールのドラッグセッション（仕様書 4.1: ドラッグ中プレビュー → 離しで確定） */
+  const shapeRef = useRef<{
+    kind: ShapeKind;
+    start: DocPoint;
+    end: DocPoint;
+  } | null>(null);
+  const [shapePreview, setShapePreview] = useState<ShapePreviewOverlay | null>(null);
   const spaceRef = useRef(false);
   const panRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(
     null
@@ -164,6 +179,7 @@ export default function CanvasViewport() {
       config,
       selection,
       antsOffset: antsTick % 8,
+      shapePreview,
       composite: (docCtx) => {
         if (previewing) {
           adjustPreviewRef.current = getAdjustPreview(adjustPreviewRef.current, {
@@ -232,6 +248,7 @@ export default function CanvasViewport() {
     selection,
     antsTick,
     floatingRect,
+    shapePreview,
     tool,
     adjust,
     adjustScope,
@@ -317,6 +334,8 @@ export default function CanvasViewport() {
           pixelPerfect: pen.pixelPerfect,
           // 選択領域外へのペイントを遮断（仕様書 4.3）
           mask: buildSelectionMask(selection, docWidth, docHeight),
+          // ミラー描画（仕様書 4.1: 縦軸/横軸/両方）
+          mirror: shape.mirror,
         },
         start
       );
@@ -341,8 +360,31 @@ export default function CanvasViewport() {
       pen.size,
       primaryColor,
       selection,
+      shape.mirror,
       tool,
     ]
+  );
+
+  /** 図形ドラッグ中のプレビュー更新（Shift 拘束 + ミラー展開。仕様書 4.1） */
+  const updateShapePreview = useCallback(
+    (shift: boolean) => {
+      const sh = shapeRef.current;
+      if (!sh) {
+        setShapePreview(null);
+        return;
+      }
+      const end = constrainShapeEnd(sh.kind, sh.start, sh.end, shift);
+      setShapePreview({
+        shapes: mirrorShapes(
+          { kind: sh.kind, start: sh.start, end, fill: shape.fillMode },
+          docWidth,
+          docHeight,
+          shape.mirror
+        ),
+        color: primaryColor,
+      });
+    },
+    [docHeight, docWidth, primaryColor, shape.fillMode, shape.mirror]
   );
 
   /** スポイト: クリック箇所の RGBA を取得して主色に設定 */
@@ -436,6 +478,12 @@ export default function CanvasViewport() {
           p,
           buildSelectionMask(selection, docWidth, docHeight)
         );
+      } else if (tool === "line" || tool === "rect" || tool === "ellipse") {
+        // 図形ツール: ドラッグ中プレビュー → 離した時点で確定（仕様書 4.1）
+        const p = docPointFromEvent(e);
+        shapeRef.current = { kind: tool, start: p, end: p };
+        e.currentTarget.setPointerCapture(e.pointerId);
+        updateShapePreview(e.shiftKey);
       } else if (tool === "rectSelect" || tool === "crop") {
         // 矩形選択 / クロップ範囲指定: ドラッグで範囲指定（クリックは1px選択）
         // Shift=加算 / Alt=減算（仕様書 4.3: 選択演算）
@@ -500,6 +548,7 @@ export default function CanvasViewport() {
       startStroke,
       sampleColor,
       tool,
+      updateShapePreview,
       wand,
       workerJob,
     ]
@@ -532,6 +581,13 @@ export default function CanvasViewport() {
         );
         return;
       }
+      // 図形ツールのドラッグ追従（プレビュー更新のみ・レイヤー本体は未書き込み）
+      const sh = shapeRef.current;
+      if (sh) {
+        sh.end = docPointFromEvent(e);
+        updateShapePreview(e.shiftKey);
+        return;
+      }
       const session = strokeRef.current;
       if (session && session.prev) {
         const target = docPointFromEvent(e);
@@ -549,6 +605,7 @@ export default function CanvasViewport() {
       docWidth,
       setFloatingPos,
       setView,
+      updateShapePreview,
       view.zoom,
     ]
   );
@@ -561,6 +618,22 @@ export default function CanvasViewport() {
       }
       selectRef.current = null;
       floatingDragRef.current = null;
+      // 図形の確定（離し時点の Shift 状態を反映。選択マスクは書き込みを遮断: 仕様書 4.1 / 4.3）
+      const sh = shapeRef.current;
+      if (sh) {
+        shapeRef.current = null;
+        setShapePreview(null);
+        const end = constrainShapeEnd(sh.kind, sh.start, sh.end, e.shiftKey);
+        const layer = layers.find((l) => l.id === activeLayerId);
+        if (layer) {
+          runShape(
+            layer.id,
+            { kind: sh.kind, start: sh.start, end, fill: shape.fillMode },
+            hexToUint32(primaryColor),
+            buildSelectionMask(selection, docWidth, docHeight)
+          );
+        }
+      }
       const session = strokeRef.current;
       if (session) {
         // 1 ストロークを 1 ステップとして確定（endStroke は touched を消去するため先に記録）
@@ -578,7 +651,17 @@ export default function CanvasViewport() {
         e.currentTarget.releasePointerCapture(e.pointerId);
       }
     },
-    [commitStrokeHistory]
+    [
+      activeLayerId,
+      commitStrokeHistory,
+      docHeight,
+      docWidth,
+      layers,
+      primaryColor,
+      runShape,
+      selection,
+      shape.fillMode,
+    ]
   );
 
   const cursor = panning ? "grabbing" : spaceHeld ? "grab" : "crosshair";

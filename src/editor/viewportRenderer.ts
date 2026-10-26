@@ -1,6 +1,14 @@
 import type { AppConfig } from "../config/configTypes";
 import { getB, getG, getR, packRGBA, hexToUint32 } from "./colorUtils";
+import type { ShapeSpec } from "./shapeTools";
 import type { SelectionState, ViewState } from "./types";
+
+/** ドラッグ中の図形プレビュー（仕様書 4.1。doc 座標・ミラー展開済み） */
+export interface ShapePreviewOverlay {
+  shapes: ShapeSpec[];
+  /** 主色（#rrggbb） */
+  color: string;
+}
 
 export interface ViewportRenderParams {
   ctx: CanvasRenderingContext2D;
@@ -15,6 +23,8 @@ export interface ViewportRenderParams {
   selection?: SelectionState | null;
   /** マーチングアンツの位相（破線オフセット・CSS px） */
   antsOffset?: number;
+  /** 図形ツールのドラッグ中プレビュー（仕様書 4.1） */
+  shapePreview?: ShapePreviewOverlay | null;
   /**
    * レイヤー合成フック（Unit D で実装）。
    * 呼び出し時は ctx がキャンバス座標系（doc 座標）に変換済み。
@@ -108,6 +118,55 @@ export function renderViewport(p: ViewportRenderParams): void {
     ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, ox, oy);
     ctx.imageSmoothingEnabled = false;
     p.composite(ctx);
+    ctx.restore();
+  }
+
+  // 3.5 図形プレビュー（仕様書 4.1: ドラッグ中はプレビュー表示・離しで確定）
+  if (p.shapePreview && p.shapePreview.shapes.length > 0) {
+    const scale = zoom * dpr;
+    ctx.save();
+    ctx.fillStyle = p.shapePreview.color;
+    ctx.strokeStyle = p.shapePreview.color;
+    ctx.lineWidth = scale; // 輪郭は 1 ドキュメントpx の太さ
+    for (const sh of p.shapePreview.shapes) {
+      const x0 = Math.min(sh.start.x, sh.end.x);
+      const y0 = Math.min(sh.start.y, sh.end.y);
+      const x1 = Math.max(sh.start.x, sh.end.x);
+      const y1 = Math.max(sh.start.y, sh.end.y);
+      if (sh.kind === "line") {
+        ctx.beginPath();
+        ctx.moveTo(ox + (sh.start.x + 0.5) * scale, oy + (sh.start.y + 0.5) * scale);
+        ctx.lineTo(ox + (sh.end.x + 0.5) * scale, oy + (sh.end.y + 0.5) * scale);
+        ctx.stroke();
+      } else if (sh.kind === "rect") {
+        if (sh.fill === "fill") {
+          ctx.fillRect(
+            ox + x0 * scale,
+            oy + y0 * scale,
+            (x1 - x0 + 1) * scale,
+            (y1 - y0 + 1) * scale
+          );
+        } else {
+          // 輪郭は端ピクセルを潰さないよう 1px 分内側に stroke
+          ctx.strokeRect(
+            ox + x0 * scale + scale / 2,
+            oy + y0 * scale + scale / 2,
+            Math.max(scale, (x1 - x0 + 1) * scale - scale),
+            Math.max(scale, (y1 - y0 + 1) * scale - scale)
+          );
+        }
+      } else {
+        // 楕円: 外接矩形に Path で描画（確定時はラスタ化されたピクセルに置き換わる）
+        const cx = ox + ((x0 + x1 + 1) / 2) * scale;
+        const cy = oy + ((y0 + y1 + 1) / 2) * scale;
+        const rx = ((x1 - x0 + 1) / 2) * scale;
+        const ry = ((y1 - y0 + 1) / 2) * scale;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+        if (sh.fill === "fill") ctx.fill();
+        else ctx.stroke();
+      }
+    }
     ctx.restore();
   }
 

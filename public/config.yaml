@@ -75,6 +75,9 @@ tools:
     dither_pattern_size: 2         # ディザ柄のセルサイズ(px)
   eyedropper:
     sample_merged: true            # 合成結果からスポイトするか
+  shape:
+    fill_mode: "outline"           # outline | fill（矩形・楕円の塗りモード初期値）
+    mirror: "none"                 # none | vertical | horizontal | both（ペン/消しゴム/図形に適用）
   replace:
     tolerance: 16
   magic_wand:

@@ -55,6 +55,7 @@ export const DEFAULT_CONFIG: AppConfig = {
       dither_pattern_size: 2,
     },
     eyedropper: { sample_merged: true },
+    shape: { fill_mode: "outline", mirror: "none" },
     replace: { tolerance: 16 },
     magic_wand: { tolerance: 16, contiguous: true },
     adjustment: { hue: 0, saturation: 0, value: 0, contrast: 0 },
