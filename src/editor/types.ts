@@ -70,10 +70,10 @@ export function fitViewState(
   };
 }
 
-/**
- * 選択状態（仕様書 4.3）
+/** 選択状態（仕様書 4.3）
  * - rect: 矩形選択（bbox のみ管理、mask は null）
- * - wand: 魔術の杖（doc サイズの Uint8Array マスク + 着色用 tint キャンバス）
+ * - wand: 魔術の杖・選択演算の結果（doc サイズの Uint8Array マスク）
+ * 半透明の着色プレビューは描画側で表示範囲のみ生成する（全体サイズの Canvas を作らない）。
  */
 export interface SelectionState {
   kind: "rect" | "wand";
@@ -84,8 +84,6 @@ export interface SelectionState {
   h: number;
   /** doc サイズの選択マスク（1=選択内）。rect では null。 */
   mask: Uint8Array | null;
-  /** 選択領域の半透明プレビュー（wand 用、doc サイズ） */
-  tint?: HTMLCanvasElement;
 }
 
 /** ビューポート座標 → キャンバス座標変換 */

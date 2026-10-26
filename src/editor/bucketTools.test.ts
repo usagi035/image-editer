@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyFill, type BucketParams } from "./bucketTools";
+import { applyFill, replacePixels, type BucketParams } from "./bucketTools";
 import { needsWorker } from "./workerHost";
 import { packRGBA } from "./colorUtils";
 
@@ -150,6 +150,40 @@ describe("applyFill — 進捗通知（Worker の進捗表示用）", () => {
       lastDone = done;
     });
     expect(lastDone).toBeGreaterThan(0);
+    expect(px[0]).toBe(BLUE);
+  });
+});
+
+describe("replacePixels — 色置換（仕様書 4.3）", () => {
+  it("指定色 A を B へ置換し、他の色は変えない", () => {
+    const px = Uint32Array.from([RED, BLUE, RED, GREEN]);
+    replacePixels(px, RED, GREEN, 0, null);
+    expect(Array.from(px)).toEqual([GREEN, BLUE, GREEN, GREEN]);
+  });
+
+  it("Tolerance により近似色も置換対象になる", () => {
+    const near = packRGBA(252, 3, 0, 255);
+    const px = Uint32Array.from([RED, near, BLUE]);
+    replacePixels(px, RED, GREEN, 5, null);
+    expect(px[0]).toBe(GREEN);
+    expect(px[1]).toBe(GREEN);
+    expect(px[2]).toBe(BLUE);
+  });
+
+  it("mask で遮断されたピクセルは置換されない", () => {
+    const px = Uint32Array.from([RED, RED]);
+    const mask = Uint8Array.from([1, 0]);
+    replacePixels(px, RED, GREEN, 0, mask);
+    expect(Array.from(px)).toEqual([GREEN, RED]);
+  });
+
+  it("onProgress が完了時に総数へ到達する", () => {
+    const px = solid(2048, 2048, RED);
+    const calls: Array<[number, number]> = [];
+    replacePixels(px, RED, BLUE, 0, null, (done, total) => calls.push([done, total]));
+    expect(calls.length).toBeGreaterThan(1);
+    const last = calls[calls.length - 1];
+    expect(last[0]).toBe(last[1]);
     expect(px[0]).toBe(BLUE);
   });
 });

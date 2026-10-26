@@ -1,4 +1,4 @@
-import { applyFill, type BucketParams } from "./bucketTools";
+import { applyFill, replacePixels, type BucketParams } from "./bucketTools";
 import type { BucketMode } from "../config/configTypes";
 
 /**
@@ -20,6 +20,19 @@ export interface BucketJobMessage {
   mask: Uint8Array | null;
 }
 
+/** Worker へ送る色置換ジョブ（pixels / mask は transfer で渡る独立バッファ） */
+export interface ReplaceJobMessage {
+  kind: "replace";
+  pixels: Uint32Array;
+  from: number;
+  to: number;
+  tolerance: number;
+  mask: Uint8Array | null;
+}
+
+/** Worker へ送るジョブの合流型 */
+export type PixelJobMessage = BucketJobMessage | ReplaceJobMessage;
+
 /** Worker から返すメッセージ */
 export type WorkerResponseMessage =
   | { kind: "progress"; done: number; total: number }
@@ -31,14 +44,21 @@ const workerScope = globalThis as unknown as {
 };
 
 workerScope.onmessage = (e: MessageEvent) => {
-  const job = e.data as BucketJobMessage;
-  if (job.kind !== "bucket") return;
-  const { pixels, width, height, startX, startY, mode, params, mask } = job;
-  applyFill(pixels, width, height, startX, startY, mode, params, mask, (done, total) => {
+  const job = e.data as PixelJobMessage;
+  const onProgress = (done: number, total: number): void => {
     workerScope.postMessage({ kind: "progress", done, total } satisfies WorkerResponseMessage);
-  });
+  };
+  if (job.kind === "bucket") {
+    const { pixels, width, height, startX, startY, mode, params, mask } = job;
+    applyFill(pixels, width, height, startX, startY, mode, params, mask, onProgress);
+  } else if (job.kind === "replace") {
+    const { pixels, from, to, tolerance, mask } = job;
+    replacePixels(pixels, from, to, tolerance, mask, onProgress);
+  } else {
+    return;
+  }
   // 結果バッファを Transferable で返す（コピーしない）
-  workerScope.postMessage({ kind: "done", pixels } satisfies WorkerResponseMessage, [
-    pixels.buffer,
+  workerScope.postMessage({ kind: "done", pixels: job.pixels } satisfies WorkerResponseMessage, [
+    job.pixels.buffer,
   ]);
 };

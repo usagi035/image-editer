@@ -19,6 +19,7 @@ import {
   type StrokeSession,
 } from "../editor/drawTools";
 import { isTypingTarget, matchesShortcut } from "../editor/shortcuts";
+import { getFloatingCanvas } from "../editor/clipboardTools";
 import {
   buildSelectionMask,
   createRectSelection,
@@ -59,7 +60,6 @@ export default function CanvasViewport() {
     activeLayerId,
     bumpRevision,
     selection,
-    setSelection,
     wand,
     setReplaceFrom,
     adjust,
@@ -67,6 +67,9 @@ export default function CanvasViewport() {
     loadImage,
     historyBegin,
     commitStrokeHistory,
+    applySelectionOperation,
+    floatingRect,
+    setFloatingPos,
   } = useEditor();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -77,6 +80,15 @@ export default function CanvasViewport() {
   /** ストローク対象レイヤー（commitStrokeHistory へ渡す） */
   const strokeLayerIdRef = useRef<string>("");
   const selectRef = useRef<DocPoint | null>(null);
+  /** 矩形選択ドラッグ中の演算モード（Shift=加算 / Alt=減算 / 通常） */
+  const selectModeRef = useRef<"replace" | "add" | "subtract">("replace");
+  /** 浮遊レイヤーのドラッグ移動中かどうか */
+  const floatingDragRef = useRef<{
+    x: number;
+    y: number;
+    fx: number;
+    fy: number;
+  } | null>(null);
   const spaceRef = useRef(false);
   const panRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(
     null
@@ -85,6 +97,8 @@ export default function CanvasViewport() {
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [panning, setPanning] = useState(false);
   const [dropActive, setDropActive] = useState(false);
+  /** マーチングアンツの位相（選択中のみ進行） */
+  const [antsTick, setAntsTick] = useState(0);
 
   // --- ドラッグ＆ドロップ読み込み（仕様書 5） ---
   const onDrop = useCallback(
@@ -128,6 +142,14 @@ export default function CanvasViewport() {
   const drawParamsRef = useRef<Omit<ViewportRenderParams, "ctx"> | null>(null);
   const rafRef = useRef<number | null>(null);
 
+  // マーチングアンツ: 選択がある間は破線の位相を進める（仕様書 4.3）
+  const hasSelection = selection !== null;
+  useEffect(() => {
+    if (!hasSelection) return;
+    const id = window.setInterval(() => setAntsTick((t) => t + 1), 100);
+    return () => window.clearInterval(id);
+  }, [hasSelection]);
+
   useEffect(() => {
     if (size.w === 0 || size.h === 0) return;
     // 色調整ツールでパラメータが変化している時はリアルタイムプレビュー（仕様書 4.4）
@@ -141,6 +163,7 @@ export default function CanvasViewport() {
       view,
       config,
       selection,
+      antsOffset: antsTick % 8,
       composite: (docCtx) => {
         if (previewing) {
           adjustPreviewRef.current = getAdjustPreview(adjustPreviewRef.current, {
@@ -154,24 +177,38 @@ export default function CanvasViewport() {
             revision,
           });
           docCtx.drawImage(adjustPreviewRef.current.canvas, 0, 0, docWidth, docHeight);
-          return;
+        } else {
+          // ビューポート範囲のみ合成（画像全体サイズの Canvas は作らない。仕様書 2.2）
+          const cache = getComposite(compositeRef.current, {
+            layers,
+            revision,
+            view,
+            cssWidth: size.w,
+            cssHeight: size.h,
+            dpr: window.devicePixelRatio,
+            docWidth,
+            docHeight,
+          });
+          compositeRef.current = cache;
+          if (cache.region.w > 0 && cache.region.h > 0) {
+            // キャンバスは画面デバイス解像度 → デバイス座標で等倍描画（ズーム変更分は合成側で再計算済み）
+            docCtx.setTransform(1, 0, 0, 1, 0, 0);
+            docCtx.drawImage(cache.canvas, cache.region.x, cache.region.y);
+          }
         }
-        // ビューポート範囲のみ合成（画像全体サイズの Canvas は作らない。仕様書 2.2）
-        const cache = getComposite(compositeRef.current, {
-          layers,
-          revision,
-          view,
-          cssWidth: size.w,
-          cssHeight: size.h,
-          dpr: window.devicePixelRatio,
-          docWidth,
-          docHeight,
-        });
-        compositeRef.current = cache;
-        if (cache.region.w > 0 && cache.region.h > 0) {
-          // キャンバスは画面デバイス解像度 → デバイス座標で等倍描画（ズーム変更分は合成側で再計算済み）
-          docCtx.setTransform(1, 0, 0, 1, 0, 0);
-          docCtx.drawImage(cache.canvas, cache.region.x, cache.region.y);
+        // 貼り付け浮遊レイヤーを最前面に描画（仕様書 4.3）
+        const fl = floatingRect ? getFloatingCanvas() : null;
+        if (fl && floatingRect) {
+          const dpr = window.devicePixelRatio;
+          docCtx.setTransform(
+            dpr * view.zoom,
+            0,
+            0,
+            dpr * view.zoom,
+            view.panX * dpr,
+            view.panY * dpr
+          );
+          docCtx.drawImage(fl, floatingRect.x, floatingRect.y);
         }
       },
     };
@@ -193,6 +230,8 @@ export default function CanvasViewport() {
     layers,
     revision,
     selection,
+    antsTick,
+    floatingRect,
     tool,
     adjust,
     adjustScope,
@@ -360,6 +399,19 @@ export default function CanvasViewport() {
       // Worker 実行中は編集操作をロック（パンは可。仕様書 2.2）
       if (workerJob) return;
 
+      // 貼り付け浮遊レイヤー: ドラッグで移動（クリックのみでは確定しない。仕様書 4.3）
+      if (floatingRect) {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        floatingDragRef.current = {
+          x: e.clientX,
+          y: e.clientY,
+          fx: floatingRect.x,
+          fy: floatingRect.y,
+        };
+        e.preventDefault();
+        return;
+      }
+
       if (tool === "pen" || tool === "eraser") {
         e.currentTarget.setPointerCapture(e.pointerId);
         startStroke(e);
@@ -386,9 +438,11 @@ export default function CanvasViewport() {
         );
       } else if (tool === "rectSelect" || tool === "crop") {
         // 矩形選択 / クロップ範囲指定: ドラッグで範囲指定（クリックは1px選択）
+        // Shift=加算 / Alt=減算（仕様書 4.3: 選択演算）
+        selectModeRef.current = e.shiftKey ? "add" : e.altKey ? "subtract" : "replace";
         e.currentTarget.setPointerCapture(e.pointerId);
         selectRef.current = docPointFromEvent(e);
-        setSelection(
+        applySelectionOperation(
           createRectSelection(
             selectRef.current.x,
             selectRef.current.y,
@@ -396,14 +450,15 @@ export default function CanvasViewport() {
             selectRef.current.y,
             docWidth,
             docHeight
-          )
+          ),
+          selectModeRef.current
         );
       } else if (tool === "magicWand") {
         // 魔術の杖: クリック点の同色領域を選択（レイヤー本体の Uint32Array を直接参照）
         const layer = layers.find((l) => l.id === activeLayerId);
         const p = docPointFromEvent(e);
         if (!layer) return;
-        setSelection(
+        applySelectionOperation(
           createWandSelection(
             layer.pixels,
             docWidth,
@@ -411,9 +466,9 @@ export default function CanvasViewport() {
             p.x,
             p.y,
             wand.tolerance,
-            wand.contiguous,
-            config.canvas.selection_color
-          )
+            wand.contiguous
+          ),
+          e.shiftKey ? "add" : e.altKey ? "subtract" : "replace"
         );
       } else if (tool === "colorReplace") {
         // 色置換: クリックした色を「置換元」として設定
@@ -428,19 +483,19 @@ export default function CanvasViewport() {
     },
     [
       activeLayerId,
+      applySelectionOperation,
       bucket,
-      config.canvas.selection_color,
       config.tools.bucket.dither_pattern_size,
       docHeight,
       docPointFromEvent,
       docWidth,
+      floatingRect,
       layers,
       primaryColor,
       runBucket,
       secondaryColor,
       selection,
       setReplaceFrom,
-      setSelection,
       startPan,
       startStroke,
       sampleColor,
@@ -459,19 +514,21 @@ export default function CanvasViewport() {
         setView((v) => ({ ...v, panX: p.panX + dx, panY: p.panY + dy }));
         return;
       }
-      // 矩形選択のドラッグ追従
+      // 浮遊レイヤーのドラッグ移動（ズーム倍率に合わせてドキュメント座標へ変換）
+      const fd = floatingDragRef.current;
+      if (fd) {
+        const dx = Math.round((e.clientX - fd.x) / view.zoom);
+        const dy = Math.round((e.clientY - fd.y) / view.zoom);
+        setFloatingPos(fd.fx + dx, fd.fy + dy);
+        return;
+      }
+      // 矩形選択のドラッグ追従（演算モードを維持: 加算/減算も逐次合成して正しい結果になる）
       const anchor = selectRef.current;
       if (anchor) {
         const cur = docPointFromEvent(e);
-        setSelection(
-          createRectSelection(
-            anchor.x,
-            anchor.y,
-            cur.x,
-            cur.y,
-            docWidth,
-            docHeight
-          )
+        applySelectionOperation(
+          createRectSelection(anchor.x, anchor.y, cur.x, cur.y, docWidth, docHeight),
+          selectModeRef.current
         );
         return;
       }
@@ -484,7 +541,16 @@ export default function CanvasViewport() {
         bumpRevision(seg);
       }
     },
-    [bumpRevision, docHeight, docPointFromEvent, docWidth, setSelection, setView]
+    [
+      applySelectionOperation,
+      bumpRevision,
+      docHeight,
+      docPointFromEvent,
+      docWidth,
+      setFloatingPos,
+      setView,
+      view.zoom,
+    ]
   );
 
   const onPointerUp = useCallback(
@@ -494,6 +560,7 @@ export default function CanvasViewport() {
         setPanning(false);
       }
       selectRef.current = null;
+      floatingDragRef.current = null;
       const session = strokeRef.current;
       if (session) {
         // 1 ストロークを 1 ステップとして確定（endStroke は touched を消去するため先に記録）

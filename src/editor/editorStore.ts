@@ -39,9 +39,30 @@ import {
 } from "./history";
 import { MemoryBudget } from "./memoryBudget";
 import { markDirty } from "./compositor";
-import { applyFill } from "./bucketTools";
-import { needsWorker, runBucketJob } from "./workerHost";
-import { fitViewState } from "./types";
+import { applyFill, replacePixels } from "./bucketTools";
+import {
+  buildMaskSelection,
+  buildSelectionMask,
+  combineMasks,
+  invertMask,
+  selectAllSelection as createFullSelection,
+} from "./selectionTools";
+import {
+  clearRectInPlace,
+  copyRect,
+  getClipboardImage,
+  getFloatingImage,
+  pasteInto,
+  setClipboardImage,
+  setFloatingImage,
+} from "./clipboardTools";
+import {
+  needsWorker,
+  runBucketJob,
+  runReplaceJob,
+  type JobHandle,
+} from "./workerHost";
+import { fitViewState, type Rect } from "./types";
 import type { EditorContextValue, ReplaceScope } from "./EditorContext";
 
 /**
@@ -100,6 +121,39 @@ const DEFAULT_LAYER = createBlankLayer(
 
 /** 実行中の Worker ジョブのキャンセルハンドル（編集ロック中かどうかは workerJob で判定） */
 let workerCancel: (() => void) | null = null;
+
+/**
+ * Worker ジョブを 1 ステップとして実行する共通処理（仕様書 2.2）。
+ * 実行中は workerJob で編集をロックし、キャンセル/失敗時は履歴ステップを成立させない
+ * （画像は実行前のまま）。完了時は applyResult で本体へ書き戻して 1 ステップに確定する。
+ */
+function runWorkerPixelStep(
+  label: string,
+  layerId: string,
+  start: (onProgress: (progress: number) => void) => JobHandle,
+  applyResult: (result: Uint32Array) => void
+): void {
+  useEditorStore.setState({ workerJob: { label, progress: 0 } });
+  historyEngine.beginStep(label);
+  historyEngine.captureLayerBefore(layerId);
+  const handle = start((progress) => {
+    useEditorStore.setState({ workerJob: { label, progress } });
+  });
+  workerCancel = handle.cancel;
+  void handle.promise.then((result) => {
+    workerCancel = null;
+    useEditorStore.setState({ workerJob: null });
+    if (!result) {
+      // キャンセル/失敗: 画像は実行前のまま・履歴ステップも成立させない
+      historyEngine.abortStep();
+      return;
+    }
+    applyResult(result);
+    markDirty();
+    historyEngine.commitStep();
+    useEditorStore.setState((st) => ({ revision: st.revision + 1, ...historySync() }));
+  });
+}
 
 export const useEditorStore = create<EditorStoreState>()((set, get) => ({
   // ============ 設定ミラー ============
@@ -326,7 +380,11 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
 
   // ============ ツール ============
   tool: "pen",
-  setTool: (t) => set({ tool: t }),
+  setTool: (t) => {
+    // 貼り付け浮遊レイヤーの確定操作（Enter/他ツール選択: 仕様書 4.3）
+    if (get().floatingRect) get().commitFloating();
+    set({ tool: t });
+  },
 
   // ============ カラー ============
   primaryColor: toHexColor(DEFAULT_CONFIG.tools.pen.default_color),
@@ -399,37 +457,51 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     }
 
     // 大画像: Worker で実行（進捗表示・キャンセル可能・実行中は編集ロック）
-    set({ workerJob: { label: "バケツ", progress: 0 } });
-    historyEngine.beginStep("バケツ");
-    historyEngine.captureLayerBefore(layerId);
-    const handle = runBucketJob(
-      {
-        pixels: layer.pixels,
-        width: layer.width,
-        height: layer.height,
-        startX: start.x,
-        startY: start.y,
-        mode,
-        params,
-        mask,
-      },
-      (progress) => set({ workerJob: { label: "バケツ", progress } })
+    runWorkerPixelStep(
+      "バケツ",
+      layerId,
+      (onProgress) =>
+        runBucketJob(
+          {
+            pixels: layer.pixels,
+            width: layer.width,
+            height: layer.height,
+            startX: start.x,
+            startY: start.y,
+            mode,
+            params,
+            mask,
+          },
+          onProgress
+        ),
+      (result) => layer.pixels.set(result)
     );
-    workerCancel = handle.cancel;
-    void handle.promise.then((result) => {
-      workerCancel = null;
-      set({ workerJob: null });
-      if (!result) {
-        // キャンセル/失敗: 画像は実行前のまま・履歴ステップも成立させない
-        historyEngine.abortStep();
-        return;
-      }
-      // 完了: 結果をレイヤー本体へ書き戻して 1 ステップとして確定
-      layer.pixels.set(result);
+  },
+  runColorReplace(layerId, from, to, tolerance, mask) {
+    const s = get();
+    if (s.workerJob) return; // 実行中は編集をロック（仕様書 2.2）
+    const layer = s.layers.find((l) => l.id === layerId);
+    if (!layer) return;
+    const pixelsTotal = layer.width * layer.height;
+    if (!get().confirmHistoryStep(pixelsTotal * 4 * 2)) return;
+
+    if (!needsWorker(pixelsTotal, s.config.canvas.worker_pixel_threshold)) {
+      historyEngine.beginStep("色置換");
+      historyEngine.captureLayerBefore(layerId);
+      replacePixels(layer.pixels, from, to, tolerance, mask);
       markDirty();
       historyEngine.commitStep();
       set((st) => ({ revision: st.revision + 1, ...historySync() }));
-    });
+      return;
+    }
+
+    runWorkerPixelStep(
+      "色置換",
+      layerId,
+      (onProgress) =>
+        runReplaceJob({ pixels: layer.pixels, from, to, tolerance, mask }, onProgress),
+      (result) => layer.pixels.set(result)
+    );
   },
 
   // ============ レイヤー（仕様書 4.5） ============
@@ -676,6 +748,151 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
       wand: { ...s.wand, tolerance: Math.max(0, Math.min(255, Math.round(n))) },
     })),
   setWandContiguous: (b) => set((s) => ({ wand: { ...s.wand, contiguous: b } })),
+
+  // ============ 選択演算（仕様書 4.3: 通常/加算 Shift/減算 Alt・全選択・反転） ============
+  applySelectionOperation(newSel, mode) {
+    const s = get();
+    const cur = s.selection;
+    if (mode === "replace" || !cur || !newSel) {
+      set({ selection: newSel });
+      return;
+    }
+    // 矩形同士: 加算は bbox の和集合で完結（マスク配列を確保しない）
+    if (cur.mask === null && newSel.mask === null && mode === "add") {
+      const x0 = Math.min(cur.x, newSel.x);
+      const y0 = Math.min(cur.y, newSel.y);
+      const x1 = Math.max(cur.x + cur.w, newSel.x + newSel.w);
+      const y1 = Math.max(cur.y + cur.h, newSel.y + newSel.h);
+      set({ selection: { kind: "rect", x: x0, y: y0, w: x1 - x0, h: y1 - y0, mask: null } });
+      return;
+    }
+    if (cur.mask === null && newSel.mask === null && mode === "subtract") {
+      const disjoint =
+        newSel.x + newSel.w <= cur.x ||
+        cur.x + cur.w <= newSel.x ||
+        newSel.y + newSel.h <= cur.y ||
+        cur.y + cur.h <= newSel.y;
+      if (disjoint) return; // 重なりなし = 現状維持
+      const contains =
+        newSel.x <= cur.x &&
+        newSel.y <= cur.y &&
+        newSel.x + newSel.w >= cur.x + cur.w &&
+        newSel.y + newSel.h >= cur.y + cur.h;
+      if (contains) {
+        set({ selection: null }); // 全体を減算 = 選択解除
+        return;
+      }
+      // 部分重複: マスク合成へフォールバック
+    }
+    const a = buildSelectionMask(cur, s.docWidth, s.docHeight);
+    const b = buildSelectionMask(newSel, s.docWidth, s.docHeight);
+    if (!a || !b) {
+      set({ selection: newSel });
+      return;
+    }
+    set({
+      selection: buildMaskSelection(
+        combineMasks(a, b, mode === "add" ? "union" : "subtract"),
+        s.docWidth,
+        s.docHeight
+      ),
+    });
+  },
+  selectAll() {
+    const s = get();
+    set({ selection: createFullSelection(s.docWidth, s.docHeight) });
+  },
+  invertSelection() {
+    const s = get();
+    if (!s.selection) {
+      set({ selection: createFullSelection(s.docWidth, s.docHeight) });
+      return;
+    }
+    const mask = buildSelectionMask(s.selection, s.docWidth, s.docHeight);
+    set({
+      selection: mask
+        ? buildMaskSelection(invertMask(mask), s.docWidth, s.docHeight)
+        : null,
+    });
+  },
+
+  // ============ コピー/切り取り/貼り付け/浮遊（仕様書 4.3） ============
+  floatingRect: null,
+  copySelection() {
+    const s = get();
+    const layer = s.layers.find((l) => l.id === s.activeLayerId);
+    if (!layer) return;
+    const sel = s.selection;
+    const rect: Rect = sel
+      ? { x: sel.x, y: sel.y, w: sel.w, h: sel.h }
+      : { x: 0, y: 0, w: layer.width, h: layer.height };
+    const mask = sel ? buildSelectionMask(sel, layer.width, layer.height) : null;
+    const image = copyRect(layer.pixels, layer.width, rect, mask);
+    if (image.width <= 0 || image.height <= 0) return;
+    setClipboardImage(image);
+  },
+  cutSelection() {
+    const s = get();
+    const layer = s.layers.find((l) => l.id === s.activeLayerId);
+    if (!layer) return;
+    if (!get().confirmHistoryStep(layer.width * layer.height * 4 * 2)) return;
+    get().copySelection();
+    const sel = s.selection;
+    const rect: Rect = sel
+      ? { x: sel.x, y: sel.y, w: sel.w, h: sel.h }
+      : { x: 0, y: 0, w: layer.width, h: layer.height };
+    const mask = sel ? buildSelectionMask(sel, layer.width, layer.height) : null;
+    historyEngine.beginStep("切り取り");
+    historyEngine.captureLayerBefore(layer.id);
+    clearRectInPlace(layer.pixels, layer.width, rect, mask);
+    markDirty();
+    historyEngine.commitStep();
+    set((st) => ({ revision: st.revision + 1, ...historySync() }));
+  },
+  pasteSelection() {
+    const image = getClipboardImage();
+    if (!image) return;
+    const s = get();
+    if (s.workerJob) return;
+    // 浮遊位置: 選択があればその左上、なければ原点
+    const x = s.selection ? s.selection.x : 0;
+    const y = s.selection ? s.selection.y : 0;
+    setFloatingImage({ ...image, x, y });
+    set({ floatingRect: { x, y, w: image.width, h: image.height } });
+  },
+  setFloatingPos(x, y) {
+    const fl = getFloatingImage();
+    if (!fl) return;
+    setFloatingImage({ ...fl, x, y });
+    set({ floatingRect: { x, y, w: fl.width, h: fl.height } });
+  },
+  commitFloating() {
+    const fl = getFloatingImage();
+    if (!fl) return;
+    const s = get();
+    const layer = s.layers.find((l) => l.id === s.activeLayerId);
+    if (!layer) return;
+    if (s.workerJob) return;
+    // 履歴上限の事前確認（拒否したら浮遊状態を維持する）
+    if (!get().confirmHistoryStep(layer.width * layer.height * 4 * 2)) return;
+    setFloatingImage(null);
+    set({ floatingRect: null });
+    // 選択マスクがあれば選択内のみへ書き込む（書き込み遮断: 仕様書 4.3）
+    const mask = s.selection
+      ? buildSelectionMask(s.selection, layer.width, layer.height)
+      : null;
+    historyEngine.beginStep("貼り付け");
+    historyEngine.captureLayerBefore(layer.id);
+    pasteInto(layer.pixels, layer.width, layer.height, fl, mask);
+    markDirty();
+    historyEngine.commitStep();
+    set((st) => ({ revision: st.revision + 1, ...historySync() }));
+  },
+  cancelFloating() {
+    if (!getFloatingImage()) return;
+    setFloatingImage(null);
+    set({ floatingRect: null });
+  },
 
   // ============ 色置換（仕様書 4.3） ============
   replace: {

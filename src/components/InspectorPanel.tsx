@@ -9,7 +9,6 @@ import {
   isIdentityAdjust,
   type AdjustParamKey,
 } from "../editor/adjustTools";
-import { replaceColorInLayer } from "../editor/bucketTools";
 import { hexToUint32 } from "../editor/colorUtils";
 import { buildSelectionMask } from "../editor/selectionTools";
 import type { ToolId } from "../editor/types";
@@ -90,31 +89,65 @@ function ColorSection() {
 
 /* ---------------- 範囲選択オプション（仕様書 4.3） ---------------- */
 
+/** 選択演算メニュー（全選択 / 反転 / 解除） */
+function SelectionOpsRow() {
+  const { selectAll, invertSelection, clearSelection } = useEditor();
+  const btn =
+    "flex-1 rounded py-1 text-app-muted hover:text-app-text";
+  return (
+    <div className="flex gap-1">
+      <button
+        className={btn}
+        style={{ background: "var(--color-panel-alt)", border: "1px solid var(--color-border)" }}
+        title="全選択（Ctrl+A）"
+        onClick={selectAll}
+      >
+        全選択
+      </button>
+      <button
+        className={btn}
+        style={{ background: "var(--color-panel-alt)", border: "1px solid var(--color-border)" }}
+        title="選択反転（Ctrl+Shift+I）"
+        onClick={invertSelection}
+      >
+        反転
+      </button>
+      <button
+        className={btn}
+        style={{ background: "var(--color-panel-alt)", border: "1px solid var(--color-border)" }}
+        title="選択解除（Esc / Ctrl+D）"
+        onClick={clearSelection}
+      >
+        解除
+      </button>
+    </div>
+  );
+}
+
 function RectSelectOptions() {
-  const { selection, clearSelection } = useEditor();
+  const { selection } = useEditor();
   return (
     <div className="flex flex-col gap-2">
-      <Hint text="ドラッグで矩形選択（クリックで1px）。選択外への描画・塗りは遮断されます" />
+      <Hint text="ドラッグで矩形選択（クリックで1px）。Shift=加算 / Alt=減算。選択外への描画・塗りは遮断されます" />
+      <SelectionOpsRow />
       {selection && (
         <div className="flex items-center justify-between gap-2">
           <span className="font-mono-nums text-app-muted" style={{ fontSize: "0.85em" }}>
             {selection.w}×{selection.h} @ ({selection.x},{selection.y})
           </span>
-          <IconButton title="選択解除 (Esc)" onClick={clearSelection}>
-            解除
-          </IconButton>
         </div>
       )}
+      <Hint text="Ctrl+C/X/V でコピー/切り取り/貼り付け。貼り付けは Enter またはツール切替で確定" />
     </div>
   );
 }
 
 function MagicWandOptions() {
-  const { wand, setWandTolerance, setWandContiguous, selection, clearSelection } =
+  const { wand, setWandTolerance, setWandContiguous, selection } =
     useEditor();
   return (
     <div className="flex flex-col gap-2">
-      <Hint text="クリックした色の領域を選択します（選択外への描画は遮断）" />
+      <Hint text="クリックした色の領域を選択します（Shift=加算 / Alt=減算・選択外への描画は遮断）" />
       <SliderRow
         label="許容値"
         value={wand.tolerance}
@@ -127,14 +160,12 @@ function MagicWandOptions() {
         checked={wand.contiguous}
         onChange={setWandContiguous}
       />
+      <SelectionOpsRow />
       {selection && (
         <div className="flex items-center justify-between gap-2">
           <span className="font-mono-nums text-app-muted" style={{ fontSize: "0.85em" }}>
             {selection.w}×{selection.h} 選択中
           </span>
-          <IconButton title="選択解除 (Esc)" onClick={clearSelection}>
-            解除
-          </IconButton>
         </div>
       )}
     </div>
@@ -153,13 +184,9 @@ function ColorReplaceOptions() {
     selection,
     layers,
     activeLayerId,
-    bumpRevision,
     primaryColor,
     secondaryColor,
-    historyBegin,
-    historyCaptureLayer,
-    historyCommit,
-    confirmHistoryStep,
+    runColorReplace,
   } = useEditor();
   const active = layers.find((l) => l.id === activeLayerId);
   const needSelection = replace.scope === "selection";
@@ -167,24 +194,16 @@ function ColorReplaceOptions() {
 
   const run = () => {
     if (!active) return;
-    // 履歴上限の事前確認 → パッチステップとして記録（仕様書 4.6）
-    if (!confirmHistoryStep(active.width * active.height * 4 * 2)) {
-      return;
-    }
-    const mask = needSelection
-      ? buildSelectionMask(selection, active.width, active.height)
-      : null;
-    historyBegin("色置換");
-    historyCaptureLayer(active.id);
-    replaceColorInLayer(
-      active,
+    // 閾値以上は Worker 実行（進捗表示・キャンセル・編集ロック付き: 仕様書 2.2 / 4.3）
+    runColorReplace(
+      active.id,
       hexToUint32(replace.from),
       hexToUint32(replace.to),
       replace.tolerance,
-      mask
+      needSelection
+        ? buildSelectionMask(selection, active.width, active.height)
+        : null
     );
-    bumpRevision();
-    historyCommit();
   };
 
   return (

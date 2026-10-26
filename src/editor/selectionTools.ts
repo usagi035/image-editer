@@ -1,10 +1,11 @@
 import { getA, getB, getG, getR } from "./colorUtils";
-import type { SelectionState } from "./types";
+import type { Rect, SelectionState } from "./types";
 
 /**
  * 範囲選択（仕様書 4.3）
  * - 矩形選択: bbox 管理
  * - 魔術の杖: 連続/全域の同色領域を Uint8Array マスク化
+ * - 選択演算: 通常(置換)/加算(Shift)/減算(Alt) — combineMasks で合成する
  * 選択外へのペイント/バケツ処理は buildSelectionMask で遮断する。
  */
 
@@ -60,8 +61,7 @@ export function createWandSelection(
   startX: number,
   startY: number,
   tolerance: number,
-  contiguous: boolean,
-  selectionColor: string
+  contiguous: boolean
 ): SelectionState | null {
   if (
     startX < 0 ||
@@ -125,19 +125,6 @@ export function createWandSelection(
 
   if (maxX < minX || maxY < minY) return null;
 
-  // 着色プレビュー（選択ピクセルへ半透明の選択色を重ねる）
-  const tint = document.createElement("canvas");
-  tint.width = docWidth;
-  tint.height = docHeight;
-  const tctx = tint.getContext("2d")!;
-  const img = tctx.createImageData(docWidth, docHeight);
-  const rgba = parseHexColor(selectionColor);
-  const data = new Uint32Array(img.data.buffer);
-  for (let i = 0; i < mask.length; i++) {
-    if (mask[i]) data[i] = rgba;
-  }
-  tctx.putImageData(img, 0, 0);
-
   return {
     kind: "wand",
     x: minX,
@@ -145,17 +132,75 @@ export function createWandSelection(
     w: maxX - minX + 1,
     h: maxY - minY + 1,
     mask,
-    tint,
   };
 }
 
-/** "#rrggbb" → 半透明の Uint32 ピクセル値（RGBA リトルエンディアン） */
-function parseHexColor(hex: string): number {
-  const n = parseInt(hex.replace("#", ""), 16);
-  const r = (n >>> 16) & 255;
-  const g = (n >>> 8) & 255;
-  const b = n & 255;
-  return (((0x66 << 24) | (b << 16) | (g << 8) | r) >>> 0);
+/** 選択マスクを合成する（union: 和集合 / subtract: a から b を減算）。結果は新しいマスク。 */
+export function combineMasks(
+  a: Uint8Array,
+  b: Uint8Array,
+  op: "union" | "subtract"
+): Uint8Array {
+  const out = new Uint8Array(a.length);
+  for (let i = 0; i < a.length; i++) {
+    out[i] = op === "union" ? (a[i] || b[i]) && 1 : a[i] && !b[i] ? 1 : 0;
+  }
+  return out;
+}
+
+/** マスクの 0/1 を反転した新しいマスクを作る（選択反転用）。 */
+export function invertMask(mask: Uint8Array): Uint8Array {
+  const out = new Uint8Array(mask.length);
+  for (let i = 0; i < mask.length; i++) {
+    out[i] = mask[i] ? 0 : 1;
+  }
+  return out;
+}
+
+/** マスクの外接矩形を計算する（空なら null）。 */
+export function maskBounds(
+  mask: Uint8Array,
+  docWidth: number,
+  docHeight: number
+): Rect | null {
+  let minX = docWidth;
+  let minY = docHeight;
+  let maxX = -1;
+  let maxY = -1;
+  for (let i = 0; i < mask.length; i++) {
+    if (!mask[i]) continue;
+    const x = i % docWidth;
+    const y = (i / docWidth) | 0;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  if (maxX < minX || maxY < minY) return null;
+  return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+}
+
+/** 全選択（bbox = ドキュメント全体・mask なし）。 */
+export function selectAllSelection(
+  docWidth: number,
+  docHeight: number
+): SelectionState | null {
+  if (docWidth <= 0 || docHeight <= 0) return null;
+  return { kind: "rect", x: 0, y: 0, w: docWidth, h: docHeight, mask: null };
+}
+
+/**
+ * マスクから選択状態を構築する（選択演算の結果用）。
+ * 空マスクなら null（= 選択なし）。tint は描画側で表示範囲のみ生成するため持たない。
+ */
+export function buildMaskSelection(
+  mask: Uint8Array,
+  docWidth: number,
+  docHeight: number
+): SelectionState | null {
+  const b = maskBounds(mask, docWidth, docHeight);
+  if (!b) return null;
+  return { kind: "wand", x: b.x, y: b.y, w: b.w, h: b.h, mask };
 }
 
 /**
