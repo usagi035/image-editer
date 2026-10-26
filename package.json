@@ -32,6 +32,7 @@
       }
     ],
     "win": {
+      "icon": "app_icon.png",
       "target": [
         {
           "target": "portable",
