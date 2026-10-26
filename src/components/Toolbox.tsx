@@ -40,25 +40,29 @@ const TOOLS: ToolDef[] = [
 function ToolButton({
   def,
   active,
+  disabled,
   onSelect,
 }: {
   def: ToolDef;
   active: boolean;
+  disabled?: boolean;
   onSelect: () => void;
 }) {
   const Icon = def.icon;
   return (
     <button
-      className="flex h-11 w-11 flex-col items-center justify-center gap-0.5 rounded"
+      className="flex h-11 w-11 flex-col items-center justify-center gap-0.5 rounded disabled:cursor-not-allowed"
       style={{
         background: active ? "var(--color-accent)" : "transparent",
         color: active ? "#ffffff" : "var(--color-text)",
         border: active
           ? "1px solid var(--color-accent-hover)"
           : "1px solid transparent",
-        cursor: "pointer",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.4 : 1,
       }}
       title={def.label}
+      disabled={disabled}
       onClick={onSelect}
     >
       <Icon size={17} />
@@ -72,7 +76,9 @@ function ToolButton({
  * モード分けは廃止（改訂版仕様書 2.2）: 全サイズで全ツールを利用できる。
  */
 export default function Toolbox() {
-  const { tool, setTool } = useEditor();
+  const { tool, setTool, workerJob } = useEditor();
+  // Worker 実行中はツールを無効化（グレーアウト。仕様書 3. Left Panel）
+  const locked = workerJob !== null;
 
   const groups: ToolDef["group"][] = [1, 2, 3];
 
@@ -92,6 +98,7 @@ export default function Toolbox() {
                 key={def.id}
                 def={def}
                 active={tool === def.id}
+                disabled={locked}
                 onSelect={() => setTool(def.id)}
               />
             ))}

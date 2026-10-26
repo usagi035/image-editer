@@ -39,6 +39,8 @@ import {
 } from "./history";
 import { MemoryBudget } from "./memoryBudget";
 import { markDirty } from "./compositor";
+import { applyFill } from "./bucketTools";
+import { needsWorker, runBucketJob } from "./workerHost";
 import { fitViewState } from "./types";
 import type { EditorContextValue, ReplaceScope } from "./EditorContext";
 
@@ -95,6 +97,9 @@ const DEFAULT_LAYER = createBlankLayer(
   "レイヤー 1",
   DEFAULT_CONFIG.canvas.background_color
 );
+
+/** 実行中の Worker ジョブのキャンセルハンドル（編集ロック中かどうかは workerJob で判定） */
+let workerCancel: (() => void) | null = null;
 
 export const useEditorStore = create<EditorStoreState>()((set, get) => ({
   // ============ 設定ミラー ============
@@ -367,6 +372,65 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     set((s) => ({
       bucket: { ...s.bucket, jitter: clamp(Math.round(n), 0, 100) },
     })),
+
+  // ============ Worker 実行基盤（仕様書 2.2: 進捗・キャンセル・編集ロック） ============
+  workerJob: null,
+  cancelWorker() {
+    workerCancel?.(); // 実行中ジョブを破棄（promise 側が workerJob を null に戻す）
+  },
+  runBucket(layerId, mode, params, start, mask) {
+    const s = get();
+    if (s.workerJob) return; // 実行中は編集をロック（仕様書 2.2）
+    const layer = s.layers.find((l) => l.id === layerId);
+    if (!layer) return;
+    const pixelsTotal = layer.width * layer.height;
+    // 履歴上限の事前確認（仕様書 4.6: 全域操作の可能性）
+    if (!get().confirmHistoryStep(pixelsTotal * 4 * 2)) return;
+
+    if (!needsWorker(pixelsTotal, s.config.canvas.worker_pixel_threshold)) {
+      // 小画像: メインスレッドで同期実行（従来どおり）
+      historyEngine.beginStep("バケツ");
+      historyEngine.captureLayerBefore(layerId);
+      applyFill(layer.pixels, layer.width, layer.height, start.x, start.y, mode, params, mask);
+      markDirty();
+      historyEngine.commitStep();
+      set((st) => ({ revision: st.revision + 1, ...historySync() }));
+      return;
+    }
+
+    // 大画像: Worker で実行（進捗表示・キャンセル可能・実行中は編集ロック）
+    set({ workerJob: { label: "バケツ", progress: 0 } });
+    historyEngine.beginStep("バケツ");
+    historyEngine.captureLayerBefore(layerId);
+    const handle = runBucketJob(
+      {
+        pixels: layer.pixels,
+        width: layer.width,
+        height: layer.height,
+        startX: start.x,
+        startY: start.y,
+        mode,
+        params,
+        mask,
+      },
+      (progress) => set({ workerJob: { label: "バケツ", progress } })
+    );
+    workerCancel = handle.cancel;
+    void handle.promise.then((result) => {
+      workerCancel = null;
+      set({ workerJob: null });
+      if (!result) {
+        // キャンセル/失敗: 画像は実行前のまま・履歴ステップも成立させない
+        historyEngine.abortStep();
+        return;
+      }
+      // 完了: 結果をレイヤー本体へ書き戻して 1 ステップとして確定
+      layer.pixels.set(result);
+      markDirty();
+      historyEngine.commitStep();
+      set((st) => ({ revision: st.revision + 1, ...historySync() }));
+    });
+  },
 
   // ============ レイヤー（仕様書 4.5） ============
   layers: [DEFAULT_LAYER],

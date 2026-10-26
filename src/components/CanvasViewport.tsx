@@ -10,7 +10,6 @@ import {
   getComposite,
   sampleMergedPixel,
 } from "../editor/compositor";
-import { applyBucketToLayer } from "../editor/bucketTools";
 import { hexToUint32, uint32ToHex } from "../editor/colorUtils";
 import {
   beginStroke,
@@ -52,6 +51,8 @@ export default function CanvasViewport() {
     pen,
     eraserSize,
     bucket,
+    runBucket,
+    workerJob,
     primaryColor,
     secondaryColor,
     setPrimaryColor,
@@ -65,10 +66,7 @@ export default function CanvasViewport() {
     adjustScope,
     loadImage,
     historyBegin,
-    historyCaptureLayer,
-    historyCommit,
     commitStrokeHistory,
-    confirmHistoryStep,
   } = useEditor();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -359,6 +357,8 @@ export default function CanvasViewport() {
         return;
       }
       if (e.button !== 0) return;
+      // Worker 実行中は編集操作をロック（パンは可。仕様書 2.2）
+      if (workerJob) return;
 
       if (tool === "pen" || tool === "eraser") {
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -366,19 +366,13 @@ export default function CanvasViewport() {
       } else if (tool === "eyedropper") {
         sampleColor(e);
       } else if (tool === "bucket") {
-        // 特殊バケツ（Uint32Array メモリ直接操作・選択範囲で遮断）
+        // 特殊バケツ（閾値以上は Worker 実行・進捗表示とキャンセル付き: 仕様書 2.2 / 4.2）
         const layer = layers.find((l) => l.id === activeLayerId);
         const p = docPointFromEvent(e);
         if (!layer) return;
         if (p.x < 0 || p.x >= docWidth || p.y < 0 || p.y >= docHeight) return;
-        // 履歴上限の事前確認 → パッチステップとして記録（仕様書 4.6）
-        if (!confirmHistoryStep(layer.width * layer.height * 4 * 2)) {
-          return;
-        }
-        historyBegin("バケツ");
-        historyCaptureLayer(layer.id);
-        applyBucketToLayer(
-          layer,
+        runBucket(
+          layer.id,
           bucket.mode,
           {
             color: hexToUint32(primaryColor),
@@ -390,8 +384,6 @@ export default function CanvasViewport() {
           p,
           buildSelectionMask(selection, docWidth, docHeight)
         );
-        bumpRevision();
-        historyCommit();
       } else if (tool === "rectSelect" || tool === "crop") {
         // 矩形選択 / クロップ範囲指定: ドラッグで範囲指定（クリックは1px選択）
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -437,18 +429,14 @@ export default function CanvasViewport() {
     [
       activeLayerId,
       bucket,
-      bumpRevision,
       config.canvas.selection_color,
       config.tools.bucket.dither_pattern_size,
-      confirmHistoryStep,
       docHeight,
       docPointFromEvent,
       docWidth,
-      historyBegin,
-      historyCaptureLayer,
-      historyCommit,
       layers,
       primaryColor,
+      runBucket,
       secondaryColor,
       selection,
       setReplaceFrom,
@@ -458,6 +446,7 @@ export default function CanvasViewport() {
       sampleColor,
       tool,
       wand,
+      workerJob,
     ]
   );
 
