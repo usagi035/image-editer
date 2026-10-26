@@ -191,7 +191,7 @@ npx asar list release/win-unpacked/resources/app.asar
 | 症状 | 対処 |
 | :--- | :--- |
 | `npm.ps1` が実行できない | `npm.cmd run ...` に変更 |
-| `default Electron icon is used` | アイコン未設定の警告。`build.win.icon`（`.ico`）を追加すると解消。動作に影響なし |
+| `default Electron icon is used` | アイコン未設定の警告。既定はルートの `app_icon.png`（`build.win.icon`）を使用。未設定時のみ表示され動作に影響なし |
 | `author is missed in the package.json` | 警告のみ。`package.json` に `author` を追記すると解消 |
 | .exe 起動後に白い画面 | `npm run build` を先に実行し `dist/` を最新化してから再ビルド |
 | 設定が反映されない | 配布版は exe 隣の `data\config.yaml` を編集 → ヘッダー「設定再読み込み」（`resources\config.yaml` は `data\config.yaml` が無いときの生成元） |

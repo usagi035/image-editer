@@ -124,6 +124,20 @@ function windowBackgroundColor() {
   return DEFAULT_WINDOW_BACKGROUND;
 }
 
+/**
+ * ウィンドウアイコン（仕様書 5: アプリアイコン）。
+ * 開発時はリポジトリ直下の `app_icon.png`、配布版は exe に埋め込み済みのため不要
+ * （ファイルが無い環境では undefined＝exe アイコンに従う）。
+ */
+function windowIcon() {
+  try {
+    const p = path.join(__dirname, "..", "app_icon.png");
+    return fs.existsSync(p) ? p : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
@@ -131,6 +145,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 600,
     backgroundColor: windowBackgroundColor(),
+    icon: windowIcon(),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
