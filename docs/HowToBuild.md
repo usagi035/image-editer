@@ -74,7 +74,9 @@ npm run preview   # http://localhost:4173 で dist/ を配信
 
 ---
 
-## 5. Windows .exe ビルド（本手順）
+## 5. Windows .exe ビルド（ポータブル版）
+
+> **ポータブル版が前提**: インストーラは作らず、**単一 portable exe** と **フォルダ版** の 2 種類をビルドします。いずれもインストール不要で、ユーザー設定は **exe の隣の `data/` フォルダ** に保存されます（USB メモリからも動作・持ち運いに追従）。
 
 ### 5.1 一発ビルド
 
@@ -85,15 +87,16 @@ npm run build:exe
 内部で以下が順に実行されます。
 
 1. `npm run build` — 型チェック + Vite バンドル（`dist/`）
-2. `electron-builder --win` — NSIS インストーラ生成（`release/`）
+2. `electron-builder --win` — portable exe + フォルダ版を生成（`release/`）
 
 ### 5.2 成果物
 
 | パス | 内容 |
 | :--- | :--- |
-| `release/ImageEditor-Setup-0.1.0.exe` | **インストーラ**（ユーザー配布用） |
-| `release/win-unpacked/Image Editor.exe` | **ポータブル版**（インストール不要・その場で起動） |
-| `release/latest.yml` / `*.blockmap` | electron-updater 用（自動更新を使う場合） |
+| `release/ImageEditor-Portable-0.1.0.exe` | **ポータブル版（単一 exe）** — ダブルクリックで自己展開して起動。exe の隣に `data/` を生成 |
+| `release/win-unpacked/Image Editor.exe`（フォルダ一式） | **フォルダ版** — このフォルダごと持ち運べば設定も一緒に移動（`data/` は exe 隣に生成） |
+
+> どちらも設定・ユーザーデータは `<exe のあるフォルダ>/data/config.yaml`。書き込み不可の場所（読み取り専用媒体など）では `%APPDATA%` へフォールバックします。開発時（`npm run electron`）も従来どおり `%APPDATA%` を使います。
 
 > `release/` と `dist/` は `.gitignore` 対象のためリポジトリには含めません。
 
@@ -114,20 +117,21 @@ electron-builder の設定は `package.json` の `"build"` フィールドにあ
   "extraResources": [                          // resources\ へ展開（asar 外）
     { "from": "public/config.yaml", "to": "config.yaml" }
   ],
-  "win": { "target": [{ "target": "nsis", "arch": ["x64"] }] },
-  "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, ... }
+  "win": { "target": [{ "target": "portable", ... }, { "target": "dir", ... }] },
+  "portable": { "artifactName": "ImageEditor-Portable-${version}.${ext}" }
 }
 ```
 
 - **`files`**: アプリ内部（`app.asar`）に入るファイル。追加したいファイルがあればここへ。
-- **`extraResources`**: インストール先の `resources\config.yaml` に出すもの。**ユーザーがメモ帳で編集できるよう asar の外に置きます**。
-- ターゲットを追加する場合は `win.target` に `"portable"` / `"zip"` 等を追記します。
+- **`extraResources`**: 配布物の `resources\config.yaml` に出すもの（`data/config.yaml` の生成元）。**ユーザーがメモ帳で編集できるよう asar の外に置きます**。
+- ターゲット: `portable`（単一 exe）と `dir`（`win-unpacked/` フォルダ版）。`nsis` インストーラは使用しません。
 
 ### 5.4 .exe 内の構成（検証結果）
 
 ```
 release/win-unpacked/
-├── Image Editor.exe          ← 起動本体
+├── Image Editor.exe          ← 起動本体（フォルダ版の配布物）
+├── data/                     ← 起動時に生成（ユーザー設定 data/config.yaml）
 ├── resources/
 │   ├── app.asar              ← アプリ本体
 │   │   ├── dist/index.html
@@ -135,12 +139,12 @@ release/win-unpacked/
 │   │   ├── electron/main.cjs
 │   │   ├── electron/preload.cjs
 │   │   └── package.json
-│   └── config.yaml           ← extraResources から展開（編集可）
-└── *.dll / locales など      ← Electron ランタイム
+│   └── config.yaml           ← extraResources から展開（data/config.yaml の生成元）
+├── *.dll / locales など      ← Electron ランタイム
 ```
 
-アプリの設定読み込み順: `resources\config.yaml`（`config:load` IPC）→ `dist/config.yaml`（fetch）→ 既定値。
-つまり **インストール版では `resources\config.yaml` が優先**されます。
+アプリの設定読み込み順: `data\config.yaml`（`config:load` IPC。無ければ `resources\config.yaml` からコピー生成）→ `dist/config.yaml`（fetch）→ 既定値。
+つまり **配布版では exe 隣の `data\config.yaml` が優先**されます。
 
 ---
 
@@ -149,19 +153,21 @@ release/win-unpacked/
 ### 6.1 起動確認
 
 ```powershell
-# ポータブル版を起動（背景で起動して確認）
+# ポータブル版（フォルダ版）を起動（背景で起動して確認）
 $exe = ".\release\win-unpacked\Image Editor.exe"
 Start-Process -FilePath (Resolve-Path $exe)
 Start-Sleep -Seconds 12
 Get-Process -Name "Image Editor" | Select-Object Id, MainWindowTitle
+Test-Path ".\release\win-unpacked\data\config.yaml"   # ポータブルデータ置き場の生成確認
 ```
 
 - `MainWindowTitle` に `Image Editor` が出ればウィンドウ生成・ロード成功です。
+- `data\config.yaml` が作られていればポータブル前提のデータ置き場が有効です。
 - 終了: `Get-Process -Name "Image Editor" | Stop-Process -Force`
 
-### 6.2 インストーラ確認
+### 6.2 ポータブル exe の確認
 
-`release\ImageEditor-Setup-0.1.0.exe` を実行 → インストール先で `Image Editor.exe` を起動し、
+`release\ImageEditor-Portable-0.1.0.exe` を実行 → 自己展開して起動し、**exe の隣の `data\config.yaml`** が生成されることを確認します。
 ヘッダーの「設定再読み込み」で `source` が `electron` になっていればローカル `config.yaml` を読めています。
 
 ### 6.3 asar 内容の確認（中身を検証したいとき）
@@ -176,7 +182,7 @@ npx asar list release/win-unpacked/resources/app.asar
 
 1. `package.json` の `"version"` を更新（SemVer: `v<MAJOR>.<MINOR>.<PATCH>`、AI-rule 2.2）
 2. `npm run build:exe`
-3. 成果物名が `ImageEditor-Setup-<新版>.exe` になることを確認
+3. 成果物名が `ImageEditor-Portable-<新版>.exe` になることを確認
 
 ---
 
@@ -188,7 +194,7 @@ npx asar list release/win-unpacked/resources/app.asar
 | `default Electron icon is used` | アイコン未設定の警告。`build.win.icon`（`.ico`）を追加すると解消。動作に影響なし |
 | `author is missed in the package.json` | 警告のみ。`package.json` に `author` を追記すると解消 |
 | .exe 起動後に白い画面 | `npm run build` を先に実行し `dist/` を最新化してから再ビルド |
-| 設定が反映されない | インストール版は `resources\config.yaml` を編集 → ヘッダー「設定再読み込み」 |
+| 設定が反映されない | 配布版は exe 隣の `data\config.yaml` を編集 → ヘッダー「設定再読み込み」（`resources\config.yaml` は `data\config.yaml` が無いときの生成元） |
 | 依存関係エラー | `Remove-Item -Recurse node_modules` → `npm install` |
 | Electron の通信エラー | プロキシ/ファイアウォールで Electron 配布 URL へのアクセスを許可 |
 
@@ -202,4 +208,4 @@ npx asar list release/win-unpacked/resources/app.asar
 | `npm run build` | 型チェック + Vite ビルド | `dist/` |
 | `npm run preview` | ビルド成果物のプレビュー | — |
 | `npm run electron` | Electron 起動（`dist/` 必要） | — |
-| `npm run build:exe` | **Web ビルド + NSIS インストーラ** | `release/` |
+| `npm run build:exe` | **Web ビルド + ポータブル版（portable exe + フォルダ版）** | `release/` |

@@ -17,14 +17,14 @@ Image Editor の全設定は `config.yaml` で一元管理されます。**色�
 
 | 優先 | 環境 | 場所 | source 表示 |
 | :-- | :-- | :-- | :-- |
-| 1 | Electron | IPC `config:load` が **`app.getPath('userData')/config.yaml`** を読み込む。**存在しなければ同梱の既定ファイルをコピーして生成**（既定候補: `resources/config.yaml` → `dist/config.yaml` → `public/config.yaml` の順に探索） | `electron` |
+| 1 | Electron | IPC `config:load` が **`<exe のあるフォルダ>/data/config.yaml`（ポータブル版前提）** を読み込む。**存在しなければ同梱の既定ファイルをコピーして生成**（既定候補: `resources/config.yaml` → `dist/config.yaml` → `public/config.yaml` の順に探索） | `electron` |
 | 2 | Web | `./config.yaml`（`public/config.yaml`、キャッシュ無効） | `file` |
 | 3 | 失敗時 | 組み込み既定値 `DEFAULT_CONFIG` | `default` |
 
-- **Electron のユーザー設定**: Windows なら `%APPDATA%\image-editer\config.yaml`。メモ帳で編集できます（asar の外にあります）。
-- **開発時（`npm run dev` / `npm run electron`）**: 起動時に `userData/config.yaml` が生成されるので、以降はそちらが優先されます。リポジトリの `public/config.yaml` を変える場合は **`userData/config.yaml` と両方**を直すか、`userData` 側を削除して再生成してください。
+- **Electron のユーザー設定**: **ポータブル版（`build:exe` の成果物）は exe の隣の `<exe のあるフォルダ>/data/config.yaml`**。フォルダごと持ち運べば設定も一緒に移動します。**開発時（`npm run dev` / `npm run electron`）と書き込み不可の場所では** 従来どおり `%APPDATA%\image-editer\config.yaml` にフォールバックします。いずれもメモ帳で編集できます（asar の外にあります）。
+- **開発時**: 起動時に `userData/config.yaml` が生成されるので、以降はそちらが優先されます。リポジトリの `public/config.yaml` を変える場合は **`userData/config.yaml` と両方**を直すか、`userData` 側を削除して再生成してください。
 - source はヘッダー「設定再読み込み」ボタンのツールチップ `config.yaml (electron)` で確認できます。
-- 候補パスの生成: [`electron/main.cjs`](../electron/main.cjs) `ensureUserConfig()`
+- 候補パスの生成: [`electron/main.cjs`](../electron/main.cjs) `resolveDataDir()` / `ensureUserConfig()`
 
 ### 欠落・不正値の扱い（改訂版仕様書 2.1）
 
@@ -42,7 +42,7 @@ Image Editor の全設定は `config.yaml` で一元管理されます。**色�
 
 ## 2. 変更手順と反映
 
-1. 編集（開発: `public/config.yaml` ／ 運用: `userData/config.yaml`）
+1. 編集（開発: `public/config.yaml` ／ 運用: `<exe のあるフォルダ>/data/config.yaml`。開発時は `userData/config.yaml`）
 2. ヘッダーの **「設定再読み込み」** をクリック（Web はハードリロードでも可）
 3. 以下が同時に反映される
    - **テーマ**（色・フォント・角丸・チェッカー色） → `applyTheme()` が `:root` の CSS 変数へ
@@ -265,7 +265,7 @@ theme:
 | `src/config/limits.ts` | `max_pixels` の上限チェックとエラーメッセージ |
 | `src/editor/memoryBudget.ts` | `MemoryBudget`（予算判定）と使用量整形 |
 | `src/components/notify.ts` / `NotifyHost.tsx` | トースト / エラーダイアログの描画 |
-| `electron/main.cjs` | `userData/config.yaml` の生成・読込・背景色取得 |
+| `electron/main.cjs` | `data/config.yaml` の生成・読込（ポータブル解決 + `userData` フォールバック）・背景色取得 |
 | `src/components/HeaderBar.tsx` | 「設定再読み込み」（source 表示）とメモリ使用量表示 |
 
 ---
@@ -288,3 +288,4 @@ theme:
 | 重い画素処理を Worker へ（MS6） | 実装済み（`feature/worker-bucket`）: `canvas.worker_pixel_threshold`（既定 100 万px）以上のバケツは Web Worker（`pixelWorker.ts`）で実行。ヘッダーに進捗`<progress>`とキャンセルボタンを表示、実行中はツールと Undo/Redo をロック。キャンセル時は結果を破棄して実行前の状態のまま。小画像は従来どおりメインスレッド同期実行 |
 | 選択 & 色置換（MS7） | 実装済み（`feature/selection-replace`）: 選択演算（通常/Shift加算/Alt減算・全選択/解除/反転）・マーチングアンツ・選択外への書き込み遮断・コピー/切り取り/貼り付け（浮遊→Enter/ツール切替で確定・Escで破棄）・色置換の範囲（選択/レイヤー全体）。閾値以上の色置換は Worker 実行。ショートカット `copy`/`cut`/`paste`/`select_all`/`deselect`/`invert_selection` を追加 |
 | 図形 & ミラー（MS8） | 実装済み（`feature/shapes-mirror`）: 直線/矩形/楕円ツール（ドラッグ中プレビュー・離しで確定、矩形・楕円は `tools.shape.fill_mode` で枠のみ/塗り、Shift=45度/正方形/正円）+ ミラー描画（`tools.shape.mirror`: 縦軸/横軸/両方をペン・消しゴム・図形に適用）。選択マスクで書き込み遮断。塗り図形は `worker_pixel_threshold` 以上で Worker 実行（進捗・キャンセル・編集ロックはバケツと共通） |
+| ポータブル版前提 | 実装済み（`feature/portable-app`）: `build:exe` は NSIS インストーラを廃止し **portable exe + フォルダ版（`dir` ターゲット）** の 2 成果物を生成。ユーザー設定は **exe 隣の `data/config.yaml`**（portable は `PORTABLE_EXECUTABLE_DIR` / フォルダ版は exe のあるフォルダ）。書き込み不可・開発時は `userData/config.yaml` へフォールバック。`data/` ごと移動すれば設定も持ち運び可能 |
