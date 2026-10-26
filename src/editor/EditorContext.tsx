@@ -90,6 +90,30 @@ export interface EditorContextValue {
   /** メモリ使用量（仕様書 3 のヘッダー表示 / 2.2 の予算管理） */
   memoryUsage: MemoryUsage;
 
+  // --- 履歴（仕様書 4.6 Undo / Redo） ---
+  canUndo: boolean;
+  canRedo: boolean;
+  /** 履歴が保持している合計バイト数（メモリ予算に加算） */
+  historyBytes: number;
+  undo: () => void;
+  redo: () => void;
+  /** 1 ステップが履歴上限を超える操作の事前確認。false = 中止 */
+  confirmHistoryStep: (stepBytes: number) => boolean;
+  /** パッチステップ開始（バケツ・色置換など呼び出し側で変更される操作用） */
+  historyBegin: (label: string) => boolean;
+  /** 変更前のレイヤー全体を記録 */
+  historyCaptureLayer: (layerId: string) => void;
+  /** ステップを確定して履歴状態を更新 */
+  historyCommit: () => void;
+  /** ストローク 1 本を 1 ステップとして確定（drawTools の touched Map を受け取る） */
+  commitStrokeHistory: (
+    layerId: string,
+    touched: Map<number, number>,
+    width: number,
+    height: number,
+    pixels: Uint32Array
+  ) => void;
+
   // --- 選択（仕様書 4.3） ---
   selection: SelectionState | null;
   setSelection: (sel: SelectionState | null) => void;
@@ -155,17 +179,19 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const docHeight = useEditorStore((s) => s.docHeight);
   const hasSelection = useEditorStore((s) => s.selection !== null);
   const budgetMb = useEditorStore((s) => s.config.memory.budget_mb);
+  const historyBytes = useEditorStore((s) => s.historyBytes);
   useEffect(() => {
     const usage = new MemoryBudget(budgetMb).estimate({
       layerCount,
       width: docWidth,
       height: docHeight,
       hasSelection,
+      historyBytes,
     });
     useEditorStore.setState({ memoryUsage: usage });
-  }, [layerCount, docWidth, docHeight, hasSelection, budgetMb]);
+  }, [layerCount, docWidth, docHeight, hasSelection, historyBytes, budgetMb]);
 
-  // config.yaml のショートカット（選択解除・ズーム・グリッド）
+  // config.yaml のショートカット（Undo/Redo・選択解除・ズーム・グリッド）
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTypingTarget(e.target)) return;
@@ -175,7 +201,16 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         store.clearSelection();
         return;
       }
-      if (matchesShortcut(e, config.shortcuts.toggle_grid)) {
+      if (matchesShortcut(e, config.shortcuts.undo)) {
+        e.preventDefault();
+        store.undo();
+      } else if (
+        matchesShortcut(e, config.shortcuts.redo) ||
+        matchesShortcut(e, config.shortcuts.redo_alternative)
+      ) {
+        e.preventDefault();
+        store.redo();
+      } else if (matchesShortcut(e, config.shortcuts.toggle_grid)) {
         e.preventDefault();
         store.toggleGrid();
       } else if (matchesShortcut(e, config.shortcuts.zoom_in)) {

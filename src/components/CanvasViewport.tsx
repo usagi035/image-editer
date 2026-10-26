@@ -57,6 +57,11 @@ export default function CanvasViewport() {
     adjust,
     adjustScope,
     loadImage,
+    historyBegin,
+    historyCaptureLayer,
+    historyCommit,
+    commitStrokeHistory,
+    confirmHistoryStep,
   } = useEditor();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -64,6 +69,8 @@ export default function CanvasViewport() {
   const compositeRef = useRef<import("../editor/compositor").CompositeCache | null>(null);
   const adjustPreviewRef = useRef<AdjustPreviewCache | null>(null);
   const strokeRef = useRef<StrokeSession | null>(null);
+  /** ストローク対象レイヤー（commitStrokeHistory へ渡す） */
+  const strokeLayerIdRef = useRef<string>("");
   const selectRef = useRef<DocPoint | null>(null);
   const spaceRef = useRef(false);
   const panRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(
@@ -245,6 +252,8 @@ export default function CanvasViewport() {
       );
       if (!session) return false;
       strokeRef.current = session;
+      strokeLayerIdRef.current = layer.id;
+      historyBegin(erase ? "消しゴム" : "描画"); // 1 ストローク = 1 ステップ（仕様書 4.6）
       bumpRevision();
       return true;
     },
@@ -255,6 +264,7 @@ export default function CanvasViewport() {
       docPointFromEvent,
       docWidth,
       eraserSize,
+      historyBegin,
       layers,
       pen.pixelPerfect,
       pen.size,
@@ -343,6 +353,12 @@ export default function CanvasViewport() {
         const p = docPointFromEvent(e);
         if (!layer) return;
         if (p.x < 0 || p.x >= docWidth || p.y < 0 || p.y >= docHeight) return;
+        // 履歴上限の事前確認 → パッチステップとして記録（仕様書 4.6）
+        if (!confirmHistoryStep(layer.canvas.width * layer.canvas.height * 4 * 2)) {
+          return;
+        }
+        historyBegin("バケツ");
+        historyCaptureLayer(layer.id);
         applyBucketToLayer(
           layer,
           bucket.mode,
@@ -357,6 +373,7 @@ export default function CanvasViewport() {
           buildSelectionMask(selection, docWidth, docHeight)
         );
         bumpRevision();
+        historyCommit();
       } else if (tool === "rectSelect" || tool === "crop") {
         // 矩形選択 / クロップ範囲指定: ドラッグで範囲指定（クリックは1px選択）
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -412,9 +429,13 @@ export default function CanvasViewport() {
       bumpRevision,
       config.canvas.selection_color,
       config.tools.bucket.dither_pattern_size,
+      confirmHistoryStep,
       docHeight,
       docPointFromEvent,
       docWidth,
+      historyBegin,
+      historyCaptureLayer,
+      historyCommit,
       layers,
       primaryColor,
       secondaryColor,
@@ -463,21 +484,32 @@ export default function CanvasViewport() {
     [bumpRevision, docHeight, docPointFromEvent, docWidth, setSelection, setView]
   );
 
-  const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (panRef.current) {
-      panRef.current = null;
-      setPanning(false);
-    }
-    selectRef.current = null;
-    const session = strokeRef.current;
-    if (session) {
-      endStroke(session);
-      strokeRef.current = null;
-    }
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    }
-  }, []);
+  const onPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (panRef.current) {
+        panRef.current = null;
+        setPanning(false);
+      }
+      selectRef.current = null;
+      const session = strokeRef.current;
+      if (session) {
+        // 1 ストロークを 1 ステップとして確定（endStroke は touched を消去するため先に記録）
+        commitStrokeHistory(
+          strokeLayerIdRef.current,
+          session.touched,
+          session.width,
+          session.height,
+          session.pixels
+        );
+        endStroke(session);
+        strokeRef.current = null;
+      }
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    },
+    [commitStrokeHistory]
+  );
 
   const cursor = panning ? "grabbing" : spaceHeld ? "grab" : "crosshair";
 

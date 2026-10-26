@@ -16,6 +16,7 @@ UI・色・フォント・閾値などの設定はすべて `config.yaml` で一
 - **色置換**: 指定色 A → B を「レイヤー全体 / 選択範囲」から置換
 - **レイヤー**: 追加・複製・削除・上下移動・統合・不透明度・表示/非表示
 - **HSV 調整**: Hue / 彩度 / 明度 / コントラストをスライダー即時プレビュー → 適用
+- **Undo / Redo**: パッチ方式の履歴。ペン/消しゴムのストローク、バケツ、色置換、レイヤー操作（追加・削除・複製・移動・不透明度・表示・統合）、HSV 適用、リサイズ/クロップをそれぞれ 1 ステップで復元
 
 ### ユーティリティ
 - **リサイズ**: 全レイヤーをスケール（拡大はニアレストでドット維持）
@@ -82,6 +83,8 @@ npm run electron       # Electron で起動
 | 操作 | ショートカット |
 | :--- | :--- |
 | エクスポート（即書き出し） | `Ctrl+S` |
+| 元に戻す | `Ctrl+Z` |
+| やり直す | `Ctrl+Y` / `Ctrl+Shift+Z` |
 | ズームイン / アウト | `Ctrl++` / `Ctrl+-` |
 | ズームリセット（100%） | `Ctrl+0` |
 | グリッド表示切替 | `G` |
@@ -92,7 +95,7 @@ npm run electron       # Electron で起動
 
 ```
 ┌────────────────────────────────────────────┐
-│ Header: 新規 / 開く / 保存 / 設定再読み込み │  寸法 / メモリ使用量 / ズーム / グリッド
+│ Header: 新規/開く/保存/元に戻す/やり直す/設定再読み込み │  寸法 / メモリ使用量 / ズーム / グリッド
 ├───┬──────────────────────────────┬─────────┤
 │ T │                              │ カラー  │
 │ o │      Canvas Viewport        │ ツール  │
@@ -115,6 +118,7 @@ src/
 │   ├── adjustTools.ts      # HSV / 明度 / コントラスト
 │   ├── ioTools.ts          # 読み込み / リサイズ / クロップ / 書き出し
 │   ├── memoryBudget.ts     # メモリ予算（MemoryBudget）
+│   ├── history.ts          # Undo/Redo（パッチ方式の履歴エンジン）
 │   ├── compositor.ts       # レイヤー合成キャッシュ
 │   └── viewportRenderer.ts # ビューポート描画パイプライン
 └── App.tsx
@@ -127,7 +131,7 @@ public/
 
 ## 開発ルール
 
-開発は [AI-rule.md](./AI-Docs/AI-rule.md) に準拠します。
+開発は [AI-rule.md](./local-docs/AI-rule.md) に準拠します。
 
 - **ブランチ**: GitHub Flow（`main` は常に動作可能な安定版、機能は `feature/<機能名>`）
 - **コミット**: Conventional Commits（`feat:` / `fix:` / `refactor:` / `style:` / `docs:` / `config:`）
@@ -136,8 +140,8 @@ public/
 
 ## 参照ドキュメント
 
-> `AI-Docs/` は `.gitignore` 対象（リポジトリには含まれません）。
+> `docs/` はグローバル（git 追跡）のドキュメント、`local-docs/` はローカル専用（`.gitignore` 対象・リポジトリには含まれません）。
 
-- [仕様書.md](./AI-Docs/仕様書.md) — システム & 機能スペック
-- [AI-rule.md](./AI-Docs/AI-rule.md) — AI コーディング & Git ワークフロー
-- [END-GOAL.md](./AI-Docs/END-GOAL.md) — 最終ビジョン & 完成基準
+- [仕様書.md](./local-docs/仕様書.md) — システム & 機能スペック
+- [AI-rule.md](./local-docs/AI-rule.md) — AI コーディング & Git ワークフロー
+- [END-GOAL.md](./local-docs/END-GOAL.md) — 最終ビジョン & 完成基準

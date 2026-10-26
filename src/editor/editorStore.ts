@@ -21,6 +21,12 @@ import {
   resizeLayers,
 } from "./ioTools";
 import { cloneLayer, createBlankLayer, type Layer } from "./layerUtils";
+import {
+  HistoryEngine,
+  type HistoryHost,
+  type LayerContent,
+  type StructureSnapshot,
+} from "./history";
 import { MemoryBudget } from "./memoryBudget";
 import type { EditorContextValue, ReplaceScope } from "./EditorContext";
 
@@ -84,6 +90,10 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
 
   syncFromConfig(config) {
     const s = get();
+    historyEngine.setLimits({
+      maxSteps: config.history.max_steps,
+      maxMemoryMb: config.history.max_memory_mb,
+    });
     set({
       config,
       pen: {
@@ -132,14 +142,27 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
       showErrorDialog(limitError);
       return;
     }
+    if (nw === s.docWidth && nh === s.docHeight) {
+      set({ selection: null }); // 従来通り選択解除のみ（履歴には残さない）
+      return;
+    }
+    // 履歴上限の事前確認（仕様書 4.6: 1 ステップで超過する操作は確認して実行）
+    const beforeBytes = s.layers.length * s.docWidth * s.docHeight * 4;
+    const afterBytes = s.layers.length * nw * nh * 4;
+    if (!get().confirmHistoryStep((beforeBytes + afterBytes) * 2)) return;
     // 全レイヤーのピクセルをスケール（仕様書 5 リサイズ）
+    historyEngine.beginStep("リサイズ");
+    for (const l of s.layers) historyEngine.noteRemovedLayer(l.id);
     resizeLayers(s.layers, nw, nh);
+    for (const l of s.layers) historyEngine.noteAddedLayer(l.id);
+    historyEngine.commitStep();
     set({
       layers: [...s.layers],
       docWidth: nw,
       docHeight: nh,
       selection: null,
       revision: s.revision + 1,
+      ...historySync(),
     });
   },
 
@@ -167,6 +190,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
       "レイヤー 1",
       s.config.canvas.background_color
     );
+    historyEngine.clear(); // 新規ドキュメントで履歴をリセット
     set({
       docWidth: nw,
       docHeight: nh,
@@ -176,6 +200,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
       selection: null, // 新規作成時は選択を解除
       revision: s.revision + 1,
     });
+    set(historySync());
   },
 
   async loadImage(src, name) {
@@ -199,6 +224,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
       return;
     }
     const layer = layerFromImage(img);
+    historyEngine.clear(); // 読み込みで履歴をリセット
     set({
       docWidth: nw,
       docHeight: nh,
@@ -208,6 +234,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
       selection: null,
       revision: s.revision + 1,
     });
+    set(historySync());
   },
 
   cropDocument(x, y, w, h) {
@@ -216,7 +243,14 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     const sy = clamp(Math.round(y), 0, s.docHeight - 1);
     const sw = clamp(Math.round(w), 1, s.docWidth - sx);
     const sh = clamp(Math.round(h), 1, s.docHeight - sy);
+    // 履歴上限の事前確認（仕様書 4.6）
+    const beforeBytes = s.layers.length * s.docWidth * s.docHeight * 4;
+    const afterBytes = s.layers.length * sw * sh * 4;
+    if (!get().confirmHistoryStep((beforeBytes + afterBytes) * 2)) return;
+    historyEngine.beginStep("クロップ");
+    for (const l of s.layers) historyEngine.noteRemovedLayer(l.id);
     cropLayers(s.layers, sx, sy, sw, sh);
+    for (const l of s.layers) historyEngine.noteAddedLayer(l.id);
     set({
       layers: [...s.layers],
       docWidth: sw,
@@ -224,6 +258,8 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
       selection: null,
       revision: s.revision + 1,
     });
+    historyEngine.commitStep();
+    set(historySync());
   },
 
   async exportImage(format, scale) {
@@ -346,11 +382,15 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     );
     const next = [...s.layers];
     next.splice(insertAt, 0, layer);
+    historyEngine.beginStep("レイヤー追加");
     set({
       layers: next,
       activeLayerId: layer.id,
       revision: s.revision + 1,
     });
+    historyEngine.noteAddedLayer(layer.id); // Redo で再生成するため内容を記録
+    historyEngine.commitStep();
+    set(historySync());
   },
 
   duplicateLayer(id) {
@@ -375,11 +415,15 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     const copy = cloneLayer(source, `${source.name} のコピー`);
     const next = [...s.layers];
     next.splice(index + 1, 0, copy);
+    historyEngine.beginStep("レイヤー複製");
     set({
       layers: next,
       activeLayerId: copy.id,
       revision: s.revision + 1,
     });
+    historyEngine.noteAddedLayer(copy.id); // Redo で再生成するため内容を記録
+    historyEngine.commitStep();
+    set(historySync());
   },
 
   deleteLayer(id) {
@@ -387,9 +431,15 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     let layers = s.layers;
     if (layers.length > 1) {
       const index = layers.findIndex((l) => l.id === id);
-      if (index >= 0) layers = layers.filter((l) => l.id !== id);
+      if (index >= 0) {
+        historyEngine.beginStep("レイヤー削除");
+        historyEngine.noteRemovedLayer(id); // Undo で画素ごと復元するため内容を記録
+        layers = layers.filter((l) => l.id !== id);
+      }
     }
     set({ layers, revision: s.revision + 1 });
+    historyEngine.commitStep();
+    set(historySync());
   },
 
   moveLayer(id, dir) {
@@ -398,29 +448,38 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     const target = index + dir;
     let layers = s.layers;
     if (index >= 0 && target >= 0 && target < layers.length) {
+      historyEngine.beginStep("レイヤー移動");
       layers = [...layers];
       [layers[index], layers[target]] = [layers[target], layers[index]];
     }
     set({ layers, revision: s.revision + 1 });
+    historyEngine.commitStep();
+    set(historySync());
   },
 
   setLayerOpacity(id, opacity) {
     const s = get();
     const v = clamp(Math.round(opacity), 0, 100);
+    historyEngine.beginStep("不透明度");
     set({
       layers: s.layers.map((l) => (l.id === id ? { ...l, opacity: v } : l)),
       revision: s.revision + 1,
     });
+    historyEngine.commitStep();
+    set(historySync());
   },
 
   toggleLayerVisible(id) {
     const s = get();
+    historyEngine.beginStep("表示切替");
     set({
       layers: s.layers.map((l) =>
         l.id === id ? { ...l, visible: !l.visible } : l
       ),
       revision: s.revision + 1,
     });
+    historyEngine.commitStep();
+    set(historySync());
   },
 
   mergeDown(id) {
@@ -430,6 +489,13 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     if (index <= 0) return;
     const src = layers[index];
     const dst = layers[index - 1];
+    // 履歴上限の事前確認（仕様書 4.6: 下層は全域書き換えになる）
+    if (!get().confirmHistoryStep(dst.canvas.width * dst.canvas.height * 4 * 2)) {
+      return;
+    }
+    historyEngine.beginStep("レイヤー統合");
+    historyEngine.noteRemovedLayer(src.id); // Undo でレイヤーごと復元
+    historyEngine.captureLayerBefore(dst.id); // 下層の書き換えをパッチで記録
     const ctx = dst.canvas.getContext("2d")!;
     ctx.globalAlpha = src.opacity / 100;
     ctx.drawImage(src.canvas, 0, 0);
@@ -439,6 +505,8 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
       activeLayerId: dst.id,
       revision: s.revision + 1,
     });
+    historyEngine.commitStep();
+    set(historySync());
   },
 
   revision: 0,
@@ -451,6 +519,45 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     height: DEFAULT_CONFIG.canvas.default_height,
     hasSelection: false,
   }),
+
+  // ============ 履歴（仕様書 4.6 Undo / Redo） ============
+  canUndo: false,
+  canRedo: false,
+  historyBytes: 0,
+
+  undo() {
+    if (!historyEngine.undo()) return;
+    set((s) => ({ revision: s.revision + 1, ...historySync() }));
+  },
+  redo() {
+    if (!historyEngine.redo()) return;
+    set((s) => ({ revision: s.revision + 1, ...historySync() }));
+  },
+
+  confirmHistoryStep(stepBytes) {
+    const maxBytes = get().config.history.max_memory_mb * 1024 * 1024;
+    if (stepBytes <= maxBytes) return true;
+    // 仕様書 4.6: 単独で上限を超える操作は事前確認して実行する（保存はされない）
+    return window.confirm(
+      "この操作は元に戻せません（履歴のメモリ上限超過）。実行しますか？"
+    );
+  },
+
+  historyBegin(label) {
+    historyEngine.beginStep(label);
+    return true;
+  },
+  historyCaptureLayer(layerId) {
+    historyEngine.captureLayerBefore(layerId);
+  },
+  historyCommit() {
+    historyEngine.commitStep();
+    set(historySync());
+  },
+  commitStrokeHistory(layerId, touched, width, height, pixels) {
+    historyEngine.commitStroke(layerId, touched, width, height, pixels);
+    set(historySync());
+  },
 
   // ============ 選択（仕様書 4.3） ============
   selection: null,
@@ -521,6 +628,16 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     // 対象は現在のレイヤー（改訂版仕様書 4.4: 全レイヤーはチェックで切替 → MS9）
     const targets = s.layers.filter((l) => l.id === s.activeLayerId);
     for (const layer of targets) {
+      // 履歴上限の事前確認（仕様書 4.6）
+      if (
+        !get().confirmHistoryStep(layer.canvas.width * layer.canvas.height * 4 * 2)
+      ) {
+        return;
+      }
+    }
+    historyEngine.beginStep("色調整");
+    for (const layer of targets) {
+      historyEngine.captureLayerBefore(layer.id);
       const mask = buildAdjustMask(
         s.adjustScope,
         s.selection,
@@ -529,6 +646,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
       );
       applyAdjustToLayer(layer, s.adjust, mask);
     }
+    historyEngine.commitStep();
     const d = s.config.tools.adjustment;
     set({
       revision: s.revision + 1,
@@ -538,6 +656,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
         value: d.value,
         contrast: d.contrast,
       },
+      ...historySync(),
     });
   },
 
@@ -598,3 +717,148 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
   },
   toggleGrid: () => set((s) => ({ view: { ...s.view, showGrid: !s.view.showGrid } })),
 }));
+
+// ============ 履歴エンジンの配線（仕様書 4.6） ============
+
+/** レイヤー Canvas を履歴エンジンへ公開するホスト実装（本番側） */
+const historyHost: HistoryHost = {
+  captureMeta(): StructureSnapshot {
+    const s = useEditorStore.getState();
+    return {
+      width: s.docWidth,
+      height: s.docHeight,
+      activeLayerId: s.activeLayerId,
+      layers: s.layers.map((l) => ({
+        id: l.id,
+        name: l.name,
+        visible: l.visible,
+        opacity: l.opacity,
+      })),
+    };
+  },
+
+  capturePixels(layerId): LayerContent | null {
+    const s = useEditorStore.getState();
+    const l = s.layers.find((x) => x.id === layerId);
+    if (!l) return null;
+    const w = l.canvas.width;
+    const h = l.canvas.height;
+    const data = l.canvas
+      .getContext("2d", { willReadFrequently: true })!
+      .getImageData(0, 0, w, h);
+    return {
+      id: l.id,
+      name: l.name,
+      visible: l.visible,
+      opacity: l.opacity,
+      width: w,
+      height: h,
+      pixels: data.data,
+    };
+  },
+
+  captureRect(layerId, rect) {
+    const s = useEditorStore.getState();
+    const l = s.layers.find((x) => x.id === layerId);
+    if (!l) return null;
+    const x = Math.max(0, Math.floor(rect.x));
+    const y = Math.max(0, Math.floor(rect.y));
+    const w = Math.min(l.canvas.width, rect.x + rect.w) - x;
+    const h = Math.min(l.canvas.height, rect.y + rect.h) - y;
+    if (w <= 0 || h <= 0) return null;
+    return l.canvas.getContext("2d", { willReadFrequently: true })!.getImageData(x, y, w, h)
+      .data;
+  },
+
+  applyRect(layerId, rect, data) {
+    const s = useEditorStore.getState();
+    const l = s.layers.find((x) => x.id === layerId);
+    if (!l) return;
+    l.canvas
+      .getContext("2d")!
+      .putImageData(
+        new ImageData(data, rect.w, rect.h),
+        Math.floor(rect.x),
+        Math.floor(rect.y)
+      );
+  },
+
+  applyDocument(snapshot, contentById) {
+    const s = useEditorStore.getState();
+    const byId = new Map(s.layers.map((l) => [l.id, l] as const));
+    const layers: Layer[] = snapshot.layers.map((meta) => {
+      const existing = byId.get(meta.id);
+      const content = contentById.get(meta.id);
+      if (
+        existing &&
+        !content &&
+        existing.canvas.width === snapshot.width &&
+        existing.canvas.height === snapshot.height
+      ) {
+        return { ...meta, canvas: existing.canvas }; // サイズ一致なら再利用（画素はパッチで復元）
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = snapshot.width;
+      canvas.height = snapshot.height;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+      if (content) {
+        if (content.width === snapshot.width && content.height === snapshot.height) {
+          ctx.putImageData(
+            new ImageData(content.pixels, content.width, content.height),
+            0,
+            0
+          );
+        } else {
+          // コンテンツ寸法と目標が異なる場合は一時 Canvas 経由で縮小/拡大
+          const tmp = document.createElement("canvas");
+          tmp.width = content.width;
+          tmp.height = content.height;
+          tmp
+            .getContext("2d")!
+            .putImageData(
+              new ImageData(content.pixels, content.width, content.height),
+              0,
+              0
+            );
+          ctx.drawImage(tmp, 0, 0, snapshot.width, snapshot.height);
+        }
+      } else if (existing) {
+        ctx.drawImage(existing.canvas, 0, 0, snapshot.width, snapshot.height);
+      }
+      return { ...meta, canvas };
+    });
+    const sizeChanged =
+      s.docWidth !== snapshot.width || s.docHeight !== snapshot.height;
+    useEditorStore.setState({
+      layers,
+      activeLayerId: snapshot.activeLayerId,
+      docWidth: snapshot.width,
+      docHeight: snapshot.height,
+      selection: sizeChanged ? null : s.selection, // サイズが変わった選択は無効
+      revision: s.revision + 1,
+    });
+  },
+};
+
+export const historyEngine = new HistoryEngine(historyHost, {
+  maxSteps: DEFAULT_CONFIG.history.max_steps,
+  maxMemoryMb: DEFAULT_CONFIG.history.max_memory_mb,
+});
+
+/** ステップ確定後に呼び出す: canUndo/canRedo・履歴バイト数・メモリ使用量を更新する */
+function historySync(): Partial<EditorStoreState> {
+  const s = useEditorStore.getState();
+  const bytes = historyEngine.usedBytes;
+  return {
+    canUndo: historyEngine.canUndo,
+    canRedo: historyEngine.canRedo,
+    historyBytes: bytes,
+    memoryUsage: budgetOf(s.config).estimate({
+      layerCount: s.layers.length,
+      width: s.docWidth,
+      height: s.docHeight,
+      hasSelection: s.selection !== null,
+      historyBytes: bytes,
+    }),
+  };
+}
