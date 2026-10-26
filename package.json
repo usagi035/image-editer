@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "electron": "electron .",
-    "build:exe": "npm run build && electron-builder --win"
+    "build:exe": "npm run build && electron-builder --win && node scripts/clean-release.cjs",
+    "clean:release": "node scripts/clean-release.cjs"
   },
   "build": {
     "appId": "com.usagi035.imageediter",

@@ -88,13 +88,16 @@ npm run build:exe
 
 1. `npm run build` — 型チェック + Vite バンドル（`dist/`）
 2. `electron-builder --win` — portable exe + フォルダ版を生成（`release/`）
+3. `scripts/clean-release.cjs` — **中間物を削除して portable exe のみ残す**（下記）
+
+> 中間物（`win-unpacked/`・`.icon-ico/`・`builder-debug.yml`・`*.nsis.7z` 等）は electron-builder がビルドのついでに出すだけで、配布には不要です。自動掃除をスキップしてフォルダ版を残すには `npm run build:exe -- --keep-folder`、単体で整理するなら `npm run clean:release` を実行します（どちらもホワイトリスト方式で `ImageEditor-Portable-*.exe` は絶対に消しません）。
 
 ### 5.2 成果物
 
 | パス | 内容 |
 | :--- | :--- |
-| `release/ImageEditor-Portable-0.1.0.exe` | **ポータブル版（単一 exe）** — ダブルクリックで自己展開して起動。exe の隣に `data/` を生成 |
-| `release/win-unpacked/Image Editor.exe`（フォルダ一式） | **フォルダ版** — このフォルダごと持ち運べば設定も一緒に移動（`data/` は exe 隣に生成） |
+| `release/ImageEditor-Portable-0.1.0.exe` | **ポータブル版（単一 exe）** — DLL・locales・resources 全部入り。ダブルクリックで自己展開して起動。exe の隣に `data/` を生成。**既定ではこれが唯一の残存物** |
+| `release/win-unpacked/`（フォルダ一式） | **フォルダ版** — `--keep-folder` 指定時のみ残存（既定は自動削除）。このフォルダごと持ち運べば設定も一緒に移動（`data/` は exe 隣に生成） |
 
 > どちらも設定・ユーザーデータは `<exe のあるフォルダ>/data/config.yaml`。書き込み不可の場所（読み取り専用媒体など）では `%APPDATA%` へフォールバックします。開発時（`npm run electron`）も従来どおり `%APPDATA%` を使います。
 
@@ -152,6 +155,8 @@ release/win-unpacked/
 
 ### 6.1 起動確認
 
+> フォルダ版（`win-unpacked/`）は `npm run build:exe -- --keep-folder` でビルドした場合のみ存在します（既定は自動削除され portable exe のみ残る）。
+
 ```powershell
 # ポータブル版（フォルダ版）を起動（背景で起動して確認）
 $exe = ".\release\win-unpacked\Image Editor.exe"
@@ -171,6 +176,8 @@ Test-Path ".\release\win-unpacked\data\config.yaml"   # ポータブルデータ
 ヘッダーの「設定再読み込み」で `source` が `electron` になっていればローカル `config.yaml` を読めています。
 
 ### 6.3 asar 内容の確認（中身を検証したいとき）
+
+> `win-unpacked/` が無ければ `npm run build:exe -- --keep-folder` で再ビルドします。
 
 ```bash
 npx asar list release/win-unpacked/resources/app.asar
@@ -208,4 +215,5 @@ npx asar list release/win-unpacked/resources/app.asar
 | `npm run build` | 型チェック + Vite ビルド | `dist/` |
 | `npm run preview` | ビルド成果物のプレビュー | — |
 | `npm run electron` | Electron 起動（`dist/` 必要） | — |
-| `npm run build:exe` | **Web ビルド + ポータブル版（portable exe + フォルダ版）** | `release/` |
+| `npm run build:exe` | **Web ビルド + ポータブル版生成 → 中間物を自動掃除**（`-- --keep-folder` でフォルダ版も残す） | `release/` |
+| `npm run clean:release` | `release/` の中間物を削除し portable exe のみ残す（ホワイトリスト方式） | `release/` |
