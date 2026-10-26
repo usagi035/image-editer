@@ -3,8 +3,10 @@ import {
   FilePlus,
   FolderOpen,
   Grid3X3,
+  Redo2,
   RefreshCw,
   Save,
+  Undo2,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -70,6 +72,10 @@ export default function HeaderBar() {
     loadImage,
     exportImage,
     memoryUsage,
+    canUndo,
+    canRedo,
+    undo,
+    redo,
   } = useEditor();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -152,6 +158,22 @@ export default function HeaderBar() {
         title={`エクスポート（${config.shortcuts.save} でも書き出し）`}
       >
         <Save size={15} />
+      </HeaderButton>
+      <HeaderButton
+        label="元に戻す"
+        disabled={!canUndo}
+        onClick={undo}
+        title={`元に戻す（${config.shortcuts.undo}）`}
+      >
+        <Undo2 size={15} />
+      </HeaderButton>
+      <HeaderButton
+        label="やり直す"
+        disabled={!canRedo}
+        onClick={redo}
+        title={`やり直す（${config.shortcuts.redo}）`}
+      >
+        <Redo2 size={15} />
       </HeaderButton>
       <HeaderButton
         label="設定再読み込み"

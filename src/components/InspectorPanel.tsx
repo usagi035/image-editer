@@ -156,6 +156,10 @@ function ColorReplaceOptions() {
     bumpRevision,
     primaryColor,
     secondaryColor,
+    historyBegin,
+    historyCaptureLayer,
+    historyCommit,
+    confirmHistoryStep,
   } = useEditor();
   const active = layers.find((l) => l.id === activeLayerId);
   const needSelection = replace.scope === "selection";
@@ -163,9 +167,15 @@ function ColorReplaceOptions() {
 
   const run = () => {
     if (!active) return;
+    // 履歴上限の事前確認 → パッチステップとして記録（仕様書 4.6）
+    if (!confirmHistoryStep(active.canvas.width * active.canvas.height * 4 * 2)) {
+      return;
+    }
     const mask = needSelection
       ? buildSelectionMask(selection, active.canvas.width, active.canvas.height)
       : null;
+    historyBegin("色置換");
+    historyCaptureLayer(active.id);
     replaceColorInLayer(
       active,
       hexToUint32(replace.from),
@@ -174,6 +184,7 @@ function ColorReplaceOptions() {
       mask
     );
     bumpRevision();
+    historyCommit();
   };
 
   return (

@@ -1,6 +1,6 @@
 # HowToBuild.md — ビルド手順（Web 版 / Windows .exe 版）
 
-Image Editor のビルド方法を記載します。**成果物の説明や機能一覧は [README.md](./README.md)** を参照してください。本書は「ビルドする手順」のみを扱います。
+Image Editor のビルド方法を記載します。**成果物の説明や機能一覧は [README.md](../README.md)** を参照してください。本書は「ビルドする手順」のみを扱います。
 
 対象ブランチ: `App_build`
 

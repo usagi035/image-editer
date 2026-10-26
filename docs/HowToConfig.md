@@ -2,12 +2,12 @@
 
 Image Editor の全設定は `config.yaml` で一元管理されます。**色・フォント・閾値などのハードコードは禁止**（AI-rule 2.1 / 改訂版仕様書 9）であり、変更は必ずこのファイル経由で行います。
 
-- 設定ファイル: [`public/config.yaml`](./public/config.yaml)
-- 型定義: [`src/config/configTypes.ts`](./src/config/configTypes.ts)
-- 既定値（安全網）: [`src/config/defaultConfig.ts`](./src/config/defaultConfig.ts)
-- 検証（不正値フォールバック）: [`src/config/validate.ts`](./src/config/validate.ts)
+- 設定ファイル: [`public/config.yaml`](../public/config.yaml)
+- 型定義: [`src/config/configTypes.ts`](../src/config/configTypes.ts)
+- 既定値（安全網）: [`src/config/defaultConfig.ts`](../src/config/defaultConfig.ts)
+- 検証（不正値フォールバック）: [`src/config/validate.ts`](../src/config/validate.ts)
 
-> ビルド手順は [HowToBuild.md](./HowToBuild.md)、機能一覧は [README.md](./README.md)、仕様は AI-Docs/仕様書 を参照。
+> ビルド手順は [HowToBuild.md](./HowToBuild.md)、機能一覧は [README.md](../README.md)、仕様は local-docs/仕様書 を参照。
 
 ---
 
@@ -24,7 +24,7 @@ Image Editor の全設定は `config.yaml` で一元管理されます。**色�
 - **Electron のユーザー設定**: Windows なら `%APPDATA%\image-editer\config.yaml`。メモ帳で編集できます（asar の外にあります）。
 - **開発時（`npm run dev` / `npm run electron`）**: 起動時に `userData/config.yaml` が生成されるので、以降はそちらが優先されます。リポジトリの `public/config.yaml` を変える場合は **`userData/config.yaml` と両方**を直すか、`userData` 側を削除して再生成してください。
 - source はヘッダー「設定再読み込み」ボタンのツールチップ `config.yaml (electron)` で確認できます。
-- 候補パスの生成: [`electron/main.cjs`](./electron/main.cjs) `ensureUserConfig()`
+- 候補パスの生成: [`electron/main.cjs`](../electron/main.cjs) `ensureUserConfig()`
 
 ### 欠落・不正値の扱い（改訂版仕様書 2.1）
 
@@ -36,7 +36,7 @@ Image Editor の全設定は `config.yaml` で一元管理されます。**色�
 | ファイル無し / YAML 構文エラー | 既定値で起動し、トースト警告。アプリは起動を続行する |
 | 上限超過（サイズ / メモリ） | **エラーダイアログ**で拒否（トーストではない） |
 
-検証は [`src/config/validate.ts`](./src/config/validate.ts) が、既定値ツリーを走査して型・範囲・色書式を確認します。
+検証は [`src/config/validate.ts`](../src/config/validate.ts) が、既定値ツリーを走査して型・範囲・色書式を確認します。
 
 ---
 
@@ -121,8 +121,8 @@ section:                 # キーは snake_case
 | キー | 既定値 | 説明 | 参照 |
 | :--- | :--- | :--- | :--- |
 | `memory.budget_mb` | `1536` | 全レイヤー + 選択マスク + 履歴の合計上限。超過するレイヤー追加・複製・新規作成・読込は**拒否＋エラーダイアログ** | `memoryBudget.ts`（`MemoryBudget` クラス）→ `EditorContext` / `HeaderBar` |
-| `history.max_steps` | `100` | Undo の最大ステップ数 | —（MS5 で参照開始） |
-| `history.max_memory_mb` | `512` | 履歴合計サイズ上限（超過時は古い順に破棄） | —（MS5 で参照開始） |
+| `history.max_steps` | `100` | Undo の最大ステップ数（超過分は古い順に破棄） | `history.ts`（`HistoryEngine`）→ `editorStore.ts` |
+| `history.max_memory_mb` | `512` | 履歴合計サイズ上限（超過時は古い順に破棄。単独で超過する操作は実行前に確認ダイアログ） | `history.ts`（`HistoryEngine`）→ `editorStore.ts` |
 
 > ヘッダーの「メモリ 1.0 / 1536.0 MB」が使用量と予算（割合 80% 超で赤表示）。
 
@@ -172,11 +172,13 @@ section:                 # キーは snake_case
 | キー | 既定値 | 割当て |
 | :--- | :--- | :--- |
 | `shortcuts.save` | `Ctrl+S` | 即エクスポート |
+| `shortcuts.undo` | `Ctrl+Z` | 元に戻す（ヘッダーの「元に戻す」ボタンと連動） |
+| `shortcuts.redo` / `redo_alternative` | `Ctrl+Y` / `Ctrl+Shift+Z` | やり直す（どちらでも可） |
 | `shortcuts.zoom_in` / `_out` / `_reset` | `Ctrl+Plus` / `Ctrl+Minus` / `Ctrl+0` | ズーム |
 | `shortcuts.toggle_grid` | `G` | グリッド切替 |
 | `shortcuts.pan` | `Space` | Space + ドラッグでパン |
 
-- 記法・照合: [`src/editor/shortcuts.ts`](./src/editor/shortcuts.ts)（`+` 区切り、`Plus`/`Minus`/`Space`/`Esc` の特殊名、Mac は Cmd 互換）
+- 記法・照合: [`src/editor/shortcuts.ts`](../src/editor/shortcuts.ts)（`+` 区切り、`Plus`/`Minus`/`Space`/`Esc` の特殊名、Mac は Cmd 互換）
 - 未登録: 選択解除の `Esc` は `EditorContext` 内で固定処理
 
 ---
@@ -195,12 +197,12 @@ section:                 # キーは snake_case
 
 ## 6. キーを新規追加する場合
 
-1. [`src/config/configTypes.ts`](./src/config/configTypes.ts) — 型へ追加
-2. [`src/config/defaultConfig.ts`](./src/config/defaultConfig.ts) — 既定値を追加（**省略すると型エラー**）
-3. [`public/config.yaml`](./public/config.yaml) — 実ファイルへ追記（README 同期）
+1. [`src/config/configTypes.ts`](../src/config/configTypes.ts) — 型へ追加
+2. [`src/config/defaultConfig.ts`](../src/config/defaultConfig.ts) — 既定値を追加（**省略すると型エラー**）
+3. [`public/config.yaml`](../public/config.yaml) — 実ファイルへ追記（README 同期）
 4. 参照側で `config.<section>.<key>` を読む（ハードコード禁止）
 
-範囲チェックが必要な数値は [`src/config/validate.ts`](./src/config/validate.ts) の `normalize()` に case を追加します。追加後は `npm run build`（型チェック込み）を通過させてからコミット。
+範囲チェックが必要な数値は [`src/config/validate.ts`](../src/config/validate.ts) の `normalize()` に case を追加します。追加後は `npm run build`（型チェック込み）を通過させてからコミット。
 
 ---
 
@@ -275,5 +277,5 @@ theme:
 | `export.jpeg_background` / 品質 0〜100 | 実装済み（本ブランチ） |
 | モード分けの廃止（`full_feature_threshold` / `show_mode_banner` 削除） | 実装済み（`feature/mode-removal`） |
 | Worker（`worker_pixel_threshold`） | MS6 |
-| 履歴（`history.*`） | MS5 |
+| 履歴（`history.*`） | 実装済み（Undo/Redo: `history.ts` + ヘッダーボタン + `Ctrl+Z`/`Ctrl+Y`） |
 | Zustand / Vitest | `feature/state-zustand` |
