@@ -1,4 +1,4 @@
-import type { BucketJobMessage } from "./pixelWorker";
+import type { PixelJobMessage } from "./pixelWorker";
 
 /**
  * Worker 実行基盤（改訂版仕様書 2.2: 進捗表示・キャンセル・編集ロック）。
@@ -25,9 +25,9 @@ export function needsWorker(pixelCount: number, threshold: number): boolean {
   return threshold > 0 && pixelCount >= threshold;
 }
 
-/** バケツジョブを Worker で実行する（呼び出し側は必ず cancel か完了のどちらかで片付ける） */
-export function runBucketJob(
-  job: Omit<BucketJobMessage, "kind">,
+/** 任意のピクセルジョブを Worker で実行する（呼び出し側は必ず cancel か完了のどちらかで片付ける） */
+function runPixelJob(
+  job: PixelJobMessage,
   onProgress?: (progress: number) => void
 ): JobHandle {
   const worker = new Worker(new URL("./pixelWorker.ts", import.meta.url), {
@@ -57,11 +57,28 @@ export function runBucketJob(
       }
     };
     worker.onerror = () => finish(null); // 失敗時も実行前の状態を維持
-    worker.postMessage({ kind: "bucket", ...job, pixels, mask } satisfies BucketJobMessage, [
+    const outgoing = { ...job, pixels, mask } as PixelJobMessage;
+    worker.postMessage(outgoing, [
       pixels.buffer,
       ...(mask ? [mask.buffer] : []),
     ]);
   });
 
   return { promise, cancel: () => cancelFn?.() };
+}
+
+/** バケツジョブを Worker で実行する */
+export function runBucketJob(
+  job: Omit<Extract<PixelJobMessage, { kind: "bucket" }>, "kind">,
+  onProgress?: (progress: number) => void
+): JobHandle {
+  return runPixelJob({ kind: "bucket", ...job }, onProgress);
+}
+
+/** 色置換ジョブを Worker で実行する */
+export function runReplaceJob(
+  job: Omit<Extract<PixelJobMessage, { kind: "replace" }>, "kind">,
+  onProgress?: (progress: number) => void
+): JobHandle {
+  return runPixelJob({ kind: "replace", ...job }, onProgress);
 }

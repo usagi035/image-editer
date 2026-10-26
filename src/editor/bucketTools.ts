@@ -162,6 +162,35 @@ export function applyBucketToLayer(
 }
 
 /**
+ * 色置換の本体（仕様書 4.3）: pixels 内の from 色を to 色へ置換する。
+ * mask（1=書き込み可）で遮断可能。onProgress は処理済み数/総数を定期通知する。
+ */
+export function replacePixels(
+  pixels: Uint32Array,
+  from: number,
+  to: number,
+  tolerance: number,
+  mask?: Uint8Array | null,
+  onProgress?: (done: number, total: number) => void
+): void {
+  const total = pixels.length;
+  const fr = getR(from);
+  const fg = getG(from);
+  const fb = getB(from);
+  const fa = getA(from);
+  for (let i = 0; i < total; i++) {
+    if (mask && !mask[i]) continue;
+    if (matches(pixels[i], fr, fg, fb, fa, tolerance)) {
+      pixels[i] = to;
+    }
+    if (onProgress && (i & PROGRESS_MASK) === 0 && i > 0) {
+      onProgress(i, total);
+    }
+  }
+  onProgress?.(total, total);
+}
+
+/**
  * 色置換（仕様書 4.3）: 指定色A を 指定色B へ置換する。
  * mask（選択範囲）で遮断可能。レイヤー全体への置換は mask=null で実行。
  */
@@ -172,16 +201,6 @@ export function replaceColorInLayer(
   tolerance: number,
   mask?: Uint8Array | null
 ): boolean {
-  const pixels = layer.pixels;
-  const fr = getR(from);
-  const fg = getG(from);
-  const fb = getB(from);
-  const fa = getA(from);
-  for (let i = 0; i < pixels.length; i++) {
-    if (mask && !mask[i]) continue;
-    if (matches(pixels[i], fr, fg, fb, fa, tolerance)) {
-      pixels[i] = to;
-    }
-  }
+  replacePixels(layer.pixels, from, to, tolerance, mask);
   return true;
 }

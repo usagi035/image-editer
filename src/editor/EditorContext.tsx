@@ -141,9 +141,28 @@ export interface EditorContextValue {
   selection: SelectionState | null;
   setSelection: (sel: SelectionState | null) => void;
   clearSelection: () => void;
+  /** 選択演算: 置換 / 加算(Shift) / 減算(Alt) */
+  applySelectionOperation: (
+    sel: SelectionState | null,
+    mode: "replace" | "add" | "subtract"
+  ) => void;
+  selectAll: () => void;
+  invertSelection: () => void;
   wand: { tolerance: number; contiguous: boolean };
   setWandTolerance: (n: number) => void;
   setWandContiguous: (b: boolean) => void;
+
+  // --- コピー/切り取り/貼り付け/浮遊（仕様書 4.3） ---
+  /** 貼り付け浮遊レイヤーの位置と寸法（null = 浮遊なし）。ピクセル本体は React 外で保持 */
+  floatingRect: Rect | null;
+  copySelection: () => void;
+  cutSelection: () => void;
+  pasteSelection: () => void;
+  setFloatingPos: (x: number, y: number) => void;
+  /** 浮遊レイヤーを現在のレイヤーへ確定書き込み（Enter / 他ツール選択） */
+  commitFloating: () => void;
+  /** 浮遊レイヤーを破棄（Escape） */
+  cancelFloating: () => void;
 
   // --- 色置換（仕様書 4.3） ---
   replace: { from: string; to: string; tolerance: number; scope: ReplaceScope };
@@ -151,6 +170,14 @@ export interface EditorContextValue {
   setReplaceTo: (hex: string) => void;
   setReplaceTolerance: (n: number) => void;
   setReplaceScope: (s: ReplaceScope) => void;
+  /** 色置換実行（閾値以上は Worker・進捗表示とキャンセル付き。仕様書 2.2 / 4.3） */
+  runColorReplace: (
+    layerId: string,
+    from: number,
+    to: number,
+    tolerance: number,
+    mask: Uint8Array | null
+  ) => void;
 
   // --- 色調整（仕様書 4.4） ---
   adjust: AdjustParams;
@@ -216,19 +243,46 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     useEditorStore.setState({ memoryUsage: usage });
   }, [layerCount, docWidth, docHeight, hasSelection, historyBytes, budgetMb]);
 
-  // config.yaml のショートカット（Undo/Redo・選択解除・ズーム・グリッド）
+  // config.yaml のショートカット（Undo/Redo・選択・クリップボード・ズーム・グリッド）
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTypingTarget(e.target)) return;
       const store = useEditorStore.getState();
-      // Worker 実行中は編集・履歴操作をロック（仕様書 2.2。ズーム/グリッドは可）
+      // Worker 実行中は編集・履歴操作をロック（仕様書 2.2。ズーム/グリッド/選択表示系は可）
       const locked = store.workerJob !== null;
       if (e.key === "Escape") {
-        // 選択解除
-        store.clearSelection();
+        // 浮遊レイヤーがあれば先に破棄、なければ選択解除（仕様書 4.3）
+        if (store.floatingRect) {
+          store.cancelFloating();
+        } else {
+          store.clearSelection();
+        }
         return;
       }
-      if (matchesShortcut(e, config.shortcuts.undo)) {
+      if (e.key === "Enter") {
+        // 貼り付け浮遊レイヤーの確定（仕様書 4.3）
+        if (store.floatingRect) store.commitFloating();
+        return;
+      }
+      if (matchesShortcut(e, config.shortcuts.copy)) {
+        e.preventDefault();
+        store.copySelection();
+      } else if (matchesShortcut(e, config.shortcuts.cut)) {
+        e.preventDefault();
+        if (!locked) store.cutSelection();
+      } else if (matchesShortcut(e, config.shortcuts.paste)) {
+        e.preventDefault();
+        if (!locked) store.pasteSelection();
+      } else if (matchesShortcut(e, config.shortcuts.select_all)) {
+        e.preventDefault();
+        store.selectAll();
+      } else if (matchesShortcut(e, config.shortcuts.deselect)) {
+        e.preventDefault();
+        store.clearSelection();
+      } else if (matchesShortcut(e, config.shortcuts.invert_selection)) {
+        e.preventDefault();
+        store.invertSelection();
+      } else if (matchesShortcut(e, config.shortcuts.undo)) {
         e.preventDefault();
         if (!locked) store.undo();
       } else if (

@@ -82,6 +82,13 @@ export const DEFAULT_CONFIG: AppConfig = {
     zoom_reset: "Ctrl+1", // 100% 表示
     toggle_grid: "G",
     pan: "Space",
+    // 選択 & クリップボード（仕様書 4.3）
+    copy: "Ctrl+C",
+    cut: "Ctrl+X",
+    paste: "Ctrl+V",
+    select_all: "Ctrl+A",
+    deselect: "Ctrl+D",
+    invert_selection: "Ctrl+Shift+I",
   },
 };
 

@@ -1,4 +1,5 @@
 import type { AppConfig } from "../config/configTypes";
+import { getB, getG, getR, packRGBA, hexToUint32 } from "./colorUtils";
 import type { SelectionState, ViewState } from "./types";
 
 export interface ViewportRenderParams {
@@ -12,12 +13,17 @@ export interface ViewportRenderParams {
   config: AppConfig;
   /** 選択領域のオーバーレイ（仕様書 4.3） */
   selection?: SelectionState | null;
+  /** マーチングアンツの位相（破線オフセット・CSS px） */
+  antsOffset?: number;
   /**
    * レイヤー合成フック（Unit D で実装）。
    * 呼び出し時は ctx がキャンバス座標系（doc 座標）に変換済み。
    */
   composite?: (ctx: CanvasRenderingContext2D) => void;
 }
+
+/** 選択マスクの着色プレビューのアルファ（既存 tint の実装値を踏襲） */
+const SELECTION_TINT_ALPHA = 0x66;
 
 interface PatternCacheKey {
   colorA: string;
@@ -149,15 +155,51 @@ export function renderViewport(p: ViewportRenderParams): void {
     ctx.restore();
   }
 
-  // 5. 選択オーバーレイ（wand は半透明 tint、bbox は破線）
+  // 5. 選択オーバーレイ（マスク領域の半透明 tint + マーチングアンツの破線）
   if (p.selection) {
     const sel = p.selection;
-    if (sel.tint) {
-      ctx.save();
-      ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, ox, oy);
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(sel.tint, 0, 0);
-      ctx.restore();
+    if (sel.mask) {
+      // tint は表示中のドキュメント範囲のみを ImageData で生成する
+      // （doc 全体サイズの Canvas は作らない。仕様書 2.2）
+      const scale = zoom * dpr;
+      const mx0 = Math.max(0, Math.floor(-ox / scale));
+      const mx1 = Math.min(docWidth, Math.ceil((cw - ox) / scale));
+      const my0 = Math.max(0, Math.floor(-oy / scale));
+      const my1 = Math.min(docHeight, Math.ceil((ch - oy) / scale));
+      const vw = mx1 - mx0;
+      const vh = my1 - my0;
+      if (vw > 0 && vh > 0) {
+        const selRgb = hexToUint32(config.canvas.selection_color);
+        const tint = packRGBA(
+          getR(selRgb),
+          getG(selRgb),
+          getB(selRgb),
+          SELECTION_TINT_ALPHA
+        );
+        const img = new ImageData(vw, vh);
+        const data = new Uint32Array(img.data.buffer);
+        for (let y = 0; y < vh; y++) {
+          const row = (my0 + y) * docWidth + mx0;
+          for (let x = 0; x < vw; x++) {
+            if (sel.mask[row + x]) data[y * vw + x] = tint;
+          }
+        }
+        const tintCanvas = document.createElement("canvas");
+        tintCanvas.width = vw;
+        tintCanvas.height = vh;
+        tintCanvas.getContext("2d")!.putImageData(img, 0, 0);
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(
+          tintCanvas,
+          Math.round(ox + mx0 * scale),
+          Math.round(oy + my0 * scale),
+          Math.round(vw * scale),
+          Math.round(vh * scale)
+        );
+        ctx.restore();
+      }
     }
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -168,6 +210,7 @@ export function renderViewport(p: ViewportRenderParams): void {
     ctx.strokeStyle = config.canvas.selection_color;
     ctx.lineWidth = Math.max(1, dpr);
     ctx.setLineDash([4 * Math.max(1, dpr), 4 * Math.max(1, dpr)]);
+    ctx.lineDashOffset = -(p.antsOffset ?? 0) * dpr; // マーチングアンツ
     ctx.strokeRect(
       sx + ctx.lineWidth / 2,
       sy + ctx.lineWidth / 2,
@@ -175,6 +218,7 @@ export function renderViewport(p: ViewportRenderParams): void {
       Math.max(0, sh - ctx.lineWidth)
     );
     ctx.setLineDash([]);
+    ctx.lineDashOffset = 0;
     ctx.restore();
   }
 
