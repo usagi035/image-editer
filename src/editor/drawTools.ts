@@ -1,4 +1,5 @@
 import type { Layer } from "./layerUtils";
+import type { MirrorMode } from "../config/configTypes";
 import type { DocPoint, Rect } from "./types";
 
 /**
@@ -23,10 +24,12 @@ export interface StrokeSession {
   pixelPerfect: boolean;
   /** 選択マスク（1=描画可）。null で全領域許可。 */
   mask: Uint8Array | null;
+  /** ミラー描画（仕様書 4.1: 縦軸/横軸/両方） */
+  mirror: MirrorMode;
 }
 
 /** 1点を現在のブラシで押印する（サイズ N は N×N の正方形ブラシ） */
-function stamp(s: StrokeSession, cx: number, cy: number): void {
+function stampAt(s: StrokeSession, cx: number, cy: number): void {
   const half = Math.floor((s.size - 1) / 2);
   const x0 = cx - half;
   const y0 = cy - half;
@@ -43,6 +46,16 @@ function stamp(s: StrokeSession, cx: number, cy: number): void {
       s.pixels[idx] = s.erase ? 0 : s.color;
     }
   }
+}
+
+/** 1点を押印する（ミラー描画: 縦軸/横軸/両方の対称位置にも同時に押印。仕様書 4.1） */
+function stamp(s: StrokeSession, cx: number, cy: number): void {
+  stampAt(s, cx, cy);
+  const m = s.mirror;
+  if (m === "none") return;
+  if (m === "vertical" || m === "both") stampAt(s, s.width - 1 - cx, cy);
+  if (m === "horizontal" || m === "both") stampAt(s, cx, s.height - 1 - cy);
+  if (m === "both") stampAt(s, s.width - 1 - cx, s.height - 1 - cy);
 }
 
 /** Pixel-Perfect: 角ピクセルを元値へ戻す（1px ブラシのみ） */
@@ -76,7 +89,7 @@ function removeCornerIfAny(s: StrokeSession, cur: DocPoint): void {
 }
 
 /** Bresenham 直線（両端含む） */
-function linePoints(from: DocPoint, to: DocPoint): DocPoint[] {
+export function linePoints(from: DocPoint, to: DocPoint): DocPoint[] {
   const points: DocPoint[] = [];
   let x = from.x;
   let y = from.y;
@@ -110,6 +123,7 @@ export function beginStroke(
     erase: boolean;
     pixelPerfect: boolean;
     mask?: Uint8Array | null;
+    mirror?: MirrorMode;
   },
   start: DocPoint
 ): StrokeSession | null {
@@ -118,6 +132,7 @@ export function beginStroke(
   if (start.x < 0 || start.x >= width || start.y < 0 || start.y >= height) {
     return null;
   }
+  const mirror = opts.mirror ?? "none";
   // レイヤー本体（Uint32Array）へ直接描画する — getImageData / putImageData を挟まない
   const s: StrokeSession = {
     pixels: layer.pixels,
@@ -129,8 +144,10 @@ export function beginStroke(
     color: opts.color >>> 0,
     size: Math.max(1, Math.round(opts.size)),
     erase: opts.erase,
-    pixelPerfect: opts.pixelPerfect && opts.size === 1,
+    // ミラー描画中は Pixel-Perfect を無効化（中間点除去が対称性を壊すため）
+    pixelPerfect: opts.pixelPerfect && opts.size === 1 && mirror === "none",
     mask: opts.mask ?? null,
+    mirror,
   };
   stamp(s, start.x, start.y);
   return s;

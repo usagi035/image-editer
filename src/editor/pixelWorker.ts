@@ -1,5 +1,6 @@
 import { applyFill, replacePixels, type BucketParams } from "./bucketTools";
-import type { BucketMode } from "../config/configTypes";
+import { writeShape, type ShapeSpec } from "./shapeTools";
+import type { BucketMode, MirrorMode } from "../config/configTypes";
 
 /**
  * ピクセル処理 Worker（改訂版仕様書 2.2: 重い画素処理は Worker で実行）。
@@ -30,8 +31,20 @@ export interface ReplaceJobMessage {
   mask: Uint8Array | null;
 }
 
+/** Worker へ送る図形ジョブ（pixels / mask は transfer で渡る独立バッファ） */
+export interface ShapeJobMessage {
+  kind: "shape";
+  pixels: Uint32Array;
+  width: number;
+  height: number;
+  spec: ShapeSpec;
+  color: number;
+  mask: Uint8Array | null;
+  mirror: MirrorMode;
+}
+
 /** Worker へ送るジョブの合流型 */
-export type PixelJobMessage = BucketJobMessage | ReplaceJobMessage;
+export type PixelJobMessage = BucketJobMessage | ReplaceJobMessage | ShapeJobMessage;
 
 /** Worker から返すメッセージ */
 export type WorkerResponseMessage =
@@ -54,6 +67,17 @@ workerScope.onmessage = (e: MessageEvent) => {
   } else if (job.kind === "replace") {
     const { pixels, from, to, tolerance, mask } = job;
     replacePixels(pixels, from, to, tolerance, mask, onProgress);
+  } else if (job.kind === "shape") {
+    const { pixels, width, height, spec, color, mask, mirror } = job;
+    writeShape(
+      pixels,
+      width,
+      height,
+      spec,
+      { color, mask, mirror },
+      new Map(),
+      (done, total) => onProgress(done, total)
+    );
   } else {
     return;
   }

@@ -60,6 +60,12 @@ export interface HistoryConfig {
 
 export type BucketMode = "flood" | "global" | "noise" | "dither" | "eraser";
 
+/** 図形（矩形・楕円）の塗りモード（仕様書 4.1: 枠のみ / 塗り） */
+export type ShapeFillMode = "outline" | "fill";
+
+/** ミラー描画の対称軸（仕様書 4.1: 縦軸 / 横軸 / 両方） */
+export type MirrorMode = "none" | "vertical" | "horizontal" | "both";
+
 export interface ToolsConfig {
   pen: { size: number; max_size: number; pixel_perfect: boolean; default_color: string };
   eraser: { size: number; max_size: number };
@@ -72,6 +78,8 @@ export interface ToolsConfig {
     dither_pattern_size: number;
   };
   eyedropper: { sample_merged: boolean };
+  /** 図形ツール & ミラー描画（仕様書 4.1） */
+  shape: { fill_mode: ShapeFillMode; mirror: MirrorMode };
   replace: { tolerance: number };
   magic_wand: { tolerance: number; contiguous: boolean };
   adjustment: { hue: number; saturation: number; value: number; contrast: number };

@@ -60,9 +60,11 @@ import {
   needsWorker,
   runBucketJob,
   runReplaceJob,
+  runShapeJob,
   type JobHandle,
 } from "./workerHost";
 import { fitViewState, type Rect } from "./types";
+import { mirrorShapes, shapePixelEstimate, writeShape } from "./shapeTools";
 import type { EditorContextValue, ReplaceScope } from "./EditorContext";
 
 /**
@@ -172,6 +174,10 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
         pixelPerfect: config.tools.pen.pixel_perfect,
       },
       eraserSize: config.tools.eraser.size,
+      shape: {
+        fillMode: config.tools.shape.fill_mode,
+        mirror: config.tools.shape.mirror,
+      },
       bucket: {
         mode: config.tools.bucket.mode,
         tolerance: config.tools.bucket.tolerance,
@@ -500,6 +506,69 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
       layerId,
       (onProgress) =>
         runReplaceJob({ pixels: layer.pixels, from, to, tolerance, mask }, onProgress),
+      (result) => layer.pixels.set(result)
+    );
+  },
+
+  // ============ 図形 & ミラー（仕様書 4.1） ============
+  shape: {
+    fillMode: DEFAULT_CONFIG.tools.shape.fill_mode,
+    mirror: DEFAULT_CONFIG.tools.shape.mirror,
+  },
+  setShapeFillMode: (m) => set((s) => ({ shape: { ...s.shape, fillMode: m } })),
+  setMirrorMode: (m) => set((s) => ({ shape: { ...s.shape, mirror: m } })),
+  runShape(layerId, spec, color, mask) {
+    const s = get();
+    if (s.workerJob) return; // 実行中は編集をロック（仕様書 2.2）
+    const layer = s.layers.find((l) => l.id === layerId);
+    if (!layer) return;
+    const mirror = s.shape.mirror;
+    // 塗り図形は対象ピクセル数が巨大になり得る → 閾値以上は Worker 実行（仕様書 2.2）
+    const estimate =
+      shapePixelEstimate(spec) *
+      mirrorShapes(spec, layer.width, layer.height, mirror).length;
+    if (!get().confirmHistoryStep(estimate * 4 * 2)) return;
+
+    if (!needsWorker(estimate, s.config.canvas.worker_pixel_threshold)) {
+      // 小さめ: メインスレッドで同期実行（touched マップで 1 ステップの履歴に確定）
+      historyEngine.beginStep("図形");
+      const touched = new Map<number, number>();
+      writeShape(
+        layer.pixels,
+        layer.width,
+        layer.height,
+        spec,
+        { color, mask, mirror },
+        touched
+      );
+      markDirty();
+      historyEngine.commitStroke(
+        layerId,
+        touched,
+        layer.width,
+        layer.height,
+        layer.pixels
+      );
+      set((st) => ({ revision: st.revision + 1, ...historySync() }));
+      return;
+    }
+
+    runWorkerPixelStep(
+      "図形",
+      layerId,
+      (onProgress) =>
+        runShapeJob(
+          {
+            pixels: layer.pixels,
+            width: layer.width,
+            height: layer.height,
+            spec,
+            color,
+            mask,
+            mirror,
+          },
+          onProgress
+        ),
       (result) => layer.pixels.set(result)
     );
   },

@@ -4,6 +4,9 @@ export type ToolId =
   | "eraser" // 消しゴム
   | "bucket" // 特殊バケツ
   | "eyedropper" // スポイト
+  | "line" // 直線
+  | "rect" // 矩形
+  | "ellipse" // 楕円
   | "colorReplace" // 色置換
   | "rectSelect" // 矩形選択
   | "magicWand" // 魔術の杖

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ArrowLeftRight } from "lucide-react";
-import type { BucketMode } from "../config/configTypes";
+import type { BucketMode, MirrorMode, ShapeFillMode } from "../config/configTypes";
 import { useConfig } from "../config/ConfigContext";
 import { checkPixelLimit, maxEdgeLength } from "../config/limits";
 import { useEditor, type ReplaceScope } from "../editor/EditorContext";
@@ -481,6 +481,108 @@ function CropOptions() {
   );
 }
 
+/* ---------------- 図形 & ミラー（仕様書 4.1） ---------------- */
+
+/** セグメント切替ボタン群（枠のみ/塗り・ミラー軸など） */
+function SegmentedRow<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: { id: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <span className="w-10 shrink-0 text-app-muted">{label}</span>
+      <div className="flex flex-1 gap-1">
+        {options.map((o) => (
+          <button
+            key={o.id}
+            className="flex-1 rounded py-1"
+            style={{
+              background:
+                value === o.id ? "var(--color-accent)" : "var(--color-panel-alt)",
+              border: "1px solid var(--color-border)",
+              color: value === o.id ? "#fff" : undefined,
+            }}
+            aria-pressed={value === o.id}
+            onClick={() => onChange(o.id)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** ミラー描画の切替（ペン・消しゴム・直線・矩形・楕円に共通。仕様書 4.1） */
+function MirrorRow() {
+  const { shape, setMirrorMode } = useEditor();
+  return (
+    <SegmentedRow<MirrorMode>
+      label="ミラー"
+      value={shape.mirror}
+      options={[
+        { id: "none", label: "なし" },
+        { id: "vertical", label: "縦軸" },
+        { id: "horizontal", label: "横軸" },
+        { id: "both", label: "両方" },
+      ]}
+      onChange={setMirrorMode}
+    />
+  );
+}
+
+/** 矩形・楕円の塗りモード（枠のみ / 塗り。仕様書 4.1） */
+function ShapeFillRow() {
+  const { shape, setShapeFillMode } = useEditor();
+  return (
+    <SegmentedRow<ShapeFillMode>
+      label="描画"
+      value={shape.fillMode}
+      options={[
+        { id: "outline", label: "枠のみ" },
+        { id: "fill", label: "塗り" },
+      ]}
+      onChange={setShapeFillMode}
+    />
+  );
+}
+
+function LineOptions() {
+  return (
+    <div className="flex flex-col gap-2">
+      <Hint text="ドラッグで直線を描画します（離しで確定）。Shift=45度固定" />
+      <MirrorRow />
+    </div>
+  );
+}
+
+function RectOptions() {
+  return (
+    <div className="flex flex-col gap-2">
+      <Hint text="ドラッグで矩形を描画します（離しで確定）。Shift=正方形" />
+      <ShapeFillRow />
+      <MirrorRow />
+    </div>
+  );
+}
+
+function EllipseOptions() {
+  return (
+    <div className="flex flex-col gap-2">
+      <Hint text="ドラッグで楕円を描画します（離しで確定）。Shift=正円" />
+      <ShapeFillRow />
+      <MirrorRow />
+    </div>
+  );
+}
+
 /* ---------------- ツールオプション ---------------- */
 
 function ToolOptionsSection() {
@@ -516,18 +618,22 @@ function ToolOptionsSection() {
               checked={pen.pixelPerfect}
               onChange={setPenPixelPerfect}
             />
+            <MirrorRow />
           </div>
         );
       case "eraser":
         return (
-          <SliderRow
-            label="太さ"
-            value={eraserSize}
-            min={1}
-            max={config.tools.eraser.max_size}
-            onChange={setEraserSize}
-            suffix="px"
-          />
+          <div className="flex flex-col gap-2">
+            <SliderRow
+              label="太さ"
+              value={eraserSize}
+              min={1}
+              max={config.tools.eraser.max_size}
+              onChange={setEraserSize}
+              suffix="px"
+            />
+            <MirrorRow />
+          </div>
         );
       case "bucket": {
         const modes: { id: BucketMode; label: string }[] = [
@@ -589,6 +695,12 @@ function ToolOptionsSection() {
             }
           />
         );
+      case "line":
+        return <LineOptions />;
+      case "rect":
+        return <RectOptions />;
+      case "ellipse":
+        return <EllipseOptions />;
       case "colorReplace":
         return <ColorReplaceOptions />;
       case "rectSelect":

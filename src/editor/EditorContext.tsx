@@ -1,6 +1,6 @@
 import { useEffect, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useConfig } from "../config/ConfigContext";
-import type { BucketMode } from "../config/configTypes";
+import type { BucketMode, MirrorMode, ShapeFillMode } from "../config/configTypes";
 import type {
   AdjustParams,
   AdjustParamKey,
@@ -12,6 +12,7 @@ import { useEditorStore } from "./editorStore";
 import { isTypingTarget, matchesShortcut } from "./shortcuts";
 import type { WorkerJobState } from "./workerHost";
 import type { BucketParams } from "./bucketTools";
+import type { ShapeSpec } from "./shapeTools";
 import type {
   Rect,
   SelectionState,
@@ -39,6 +40,14 @@ export interface BucketOptions {
   mode: BucketMode;
   tolerance: number;
   jitter: number;
+}
+
+/** 図形ツール & ミラー描画のオプション（仕様書 4.1） */
+export interface ShapeOptions {
+  /** 矩形・楕円の塗りモード（枠のみ / 塗り） */
+  fillMode: ShapeFillMode;
+  /** ミラー描画の対称軸（ペン・消しゴム・図形に適用） */
+  mirror: MirrorMode;
 }
 
 export interface EditorContextValue {
@@ -85,6 +94,18 @@ export interface EditorContextValue {
     mode: BucketMode,
     params: BucketParams,
     start: { x: number; y: number },
+    mask: Uint8Array | null
+  ) => void;
+
+  // --- 図形 & ミラー（仕様書 4.1） ---
+  shape: ShapeOptions;
+  setShapeFillMode: (m: ShapeFillMode) => void;
+  setMirrorMode: (m: MirrorMode) => void;
+  /** 図形の確定書き込み（離し時。処理量が閾値以上は Worker 実行。仕様書 2.2 / 4.1） */
+  runShape: (
+    layerId: string,
+    spec: ShapeSpec,
+    color: number,
     mask: Uint8Array | null
   ) => void;
 
