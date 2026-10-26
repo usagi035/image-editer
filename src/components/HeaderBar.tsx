@@ -3,6 +3,7 @@ import {
   FilePlus,
   FolderOpen,
   Grid3X3,
+  Maximize,
   Redo2,
   RefreshCw,
   Save,
@@ -67,6 +68,7 @@ export default function HeaderBar() {
     view,
     zoomBy,
     resetZoom,
+    fitZoom,
     toggleGrid,
     newDocument,
     loadImage,
@@ -224,6 +226,13 @@ export default function HeaderBar() {
           onClick={() => zoomBy(config.ui.zoom_step)}
         >
           <ZoomIn size={15} />
+        </button>
+        <button
+          className="rounded p-1"
+          title={`画面に合わせる (${config.shortcuts.fit})`}
+          onClick={fitZoom}
+        >
+          <Maximize size={15} />
         </button>
         <button
           className="rounded p-1"

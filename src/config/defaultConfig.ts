@@ -78,7 +78,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     redo_alternative: "Ctrl+Shift+Z",
     zoom_in: "Ctrl+Plus",
     zoom_out: "Ctrl+Minus",
-    zoom_reset: "Ctrl+0",
+    fit: "Ctrl+0", // 画面に合わせる（仕様書 4: Ctrl+0 / Ctrl+1 = 画面に合わせる / 100%）
+    zoom_reset: "Ctrl+1", // 100% 表示
     toggle_grid: "G",
     pan: "Space",
   },

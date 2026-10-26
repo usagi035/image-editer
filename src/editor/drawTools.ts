@@ -1,5 +1,5 @@
 import type { Layer } from "./layerUtils";
-import type { DocPoint } from "./types";
+import type { DocPoint, Rect } from "./types";
 
 /**
  * 基本描画ツール（仕様書 4.1）
@@ -138,7 +138,8 @@ export function beginStroke(
     mask: opts.mask ?? null,
   };
   stamp(s, start.x, start.y);
-  flushStroke(s);
+  // 押印した範囲のみ書き出す（画像全体の putImageData は行わない。仕様書 7 性能）
+  flushStroke(s, segmentBounds(start, start, s.size));
   return s;
 }
 
@@ -146,6 +147,8 @@ export function beginStroke(
 export function continueStroke(s: StrokeSession, target: DocPoint): void {
   if (!s.prev) return;
   if (s.prev.x === target.x && s.prev.y === target.y) return;
+  // この呼び出しで stamp されるのは prev→target の線分上 → その外接矩形だけ書き出す
+  const seg = segmentBounds(s.prev, target, s.size);
   const points = linePoints(s.prev, target);
   // 先頭は既描画分のため2点目以降を処理
   for (let i = 1; i < points.length; i++) {
@@ -155,17 +158,45 @@ export function continueStroke(s: StrokeSession, target: DocPoint): void {
     s.prev2 = s.prev;
     s.prev = p;
   }
-  flushStroke(s);
+  flushStroke(s, seg);
 }
 
-/** ピクセル変更をレイヤーの Canvas へ書き出す */
-export function flushStroke(s: StrokeSession): void {
-  s.ctx.putImageData(s.imageData, 0, 0);
+/**
+ * ピクセル変更をレイヤーの Canvas へ書き出す。
+ * rect 指定でその範囲のみ書き出し（省略時は全体）。beginStroke / continueStroke は
+ * それぞれの押印範囲を渡すため、レイヤー全体（最大 8192x8192=256MB）の転送はしない。
+ */
+export function flushStroke(s: StrokeSession, rect?: Rect | null): void {
+  if (!rect) {
+    s.ctx.putImageData(s.imageData, 0, 0);
+    return;
+  }
+  const x0 = Math.max(0, rect.x);
+  const y0 = Math.max(0, rect.y);
+  const x1 = Math.min(s.width, rect.x + rect.w);
+  const y1 = Math.min(s.height, rect.y + rect.h);
+  if (x1 <= x0 || y1 <= y0) return;
+  s.ctx.putImageData(s.imageData, 0, 0, x0, y0, x1 - x0, y1 - y0);
+}
+
+/**
+ * ストローク 1 点（from=to）から線分までのブラシ押印外接矩形（doc 座標）。
+ * 合成のダーティ矩形・部分書き出しの範囲計算に共通で使う。
+ * beginStroke / continueStroke が必ず flush するため endStroke での再書き出しは不要。
+ */
+export function segmentBounds(from: DocPoint, to: DocPoint, size: number): Rect {
+  const half = Math.floor((size - 1) / 2);
+  const x0 = Math.min(from.x, to.x) - half;
+  const y0 = Math.min(from.y, to.y) - half;
+  const x1 = Math.max(from.x, to.x) - half + size - 1;
+  const y1 = Math.max(from.y, to.y) - half + size - 1;
+  return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
 }
 
 /** ストローク終了（メモリ上の状態を破棄） */
 export function endStroke(s: StrokeSession): void {
-  flushStroke(s);
+  // flush 不要: beginStroke / continueStroke が必ず押印範囲を flush 済み
+  // （undoStamp の対象 s.prev も直近の segmentBounds に含まれる）
   s.touched.clear();
 }
 
