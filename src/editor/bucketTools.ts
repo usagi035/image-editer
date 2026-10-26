@@ -25,6 +25,9 @@ export interface BucketParams {
   ditherCell: number;
 }
 
+/** 進捗通知の間隔（ピクセル数。2^n - 1 のマスクで判定） */
+const PROGRESS_MASK = 0xfffff; // ≒100万ピクセルごと
+
 /** 容許値つき同色判定（RGBA 各チャンネルの最大差分で判定） */
 function matches(
   px: number,
@@ -59,6 +62,7 @@ function jitterColor(color: number, jitter: number): number {
 /**
  * クリック位置を起点へ塗りつぶし、pixels を直接書き換える。
  * mask は選択マスク（1=選択内/0=遮断）。省略時は全域許可。
+ * onProgress は処理済みピクセル数 / 総数 を定期的に通知する（Worker の進捗表示用）。
  */
 export function applyFill(
   pixels: Uint32Array,
@@ -68,7 +72,8 @@ export function applyFill(
   startY: number,
   mode: BucketMode,
   params: BucketParams,
-  mask?: Uint8Array | null
+  mask?: Uint8Array | null,
+  onProgress?: (done: number, total: number) => void
 ): void {
   if (startX < 0 || startX >= width || startY < 0 || startY >= height) return;
   const startIndex = startY * width + startX;
@@ -84,12 +89,18 @@ export function applyFill(
 
   // --- Global Fill: 隣接関係を無視して全体置換 ---
   if (mode === "global") {
-    for (let i = 0; i < pixels.length; i++) {
+    const total = pixels.length;
+    for (let i = 0; i < total; i++) {
       if (mask && !mask[i]) continue;
       if (matches(pixels[i], tr, tg, tb, ta, tolerance)) {
         pixels[i] = color;
       }
+      // 進捗通知（1M px ごとなど一定間隔でメインスレッドへ報告）
+      if (onProgress && (i & PROGRESS_MASK) === 0 && i > 0) {
+        onProgress(i, total);
+      }
     }
+    onProgress?.(total, total);
     return;
   }
 
@@ -103,6 +114,9 @@ export function applyFill(
 
   while (head < queue.length) {
     const idx = queue[head++];
+    if (onProgress && (head & PROGRESS_MASK) === 0) {
+      onProgress(head, pixels.length);
+    }
     if (!matches(pixels[idx], tr, tg, tb, ta, tolerance)) continue;
 
     if (mode === "eraser") {

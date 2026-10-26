@@ -78,6 +78,8 @@ export default function HeaderBar() {
     canRedo,
     undo,
     redo,
+    workerJob,
+    cancelWorker,
   } = useEditor();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -163,7 +165,7 @@ export default function HeaderBar() {
       </HeaderButton>
       <HeaderButton
         label="元に戻す"
-        disabled={!canUndo}
+        disabled={!canUndo || workerJob !== null}
         onClick={undo}
         title={`元に戻す（${config.shortcuts.undo}）`}
       >
@@ -171,7 +173,7 @@ export default function HeaderBar() {
       </HeaderButton>
       <HeaderButton
         label="やり直す"
-        disabled={!canRedo}
+        disabled={!canRedo || workerJob !== null}
         onClick={redo}
         title={`やり直す（${config.shortcuts.redo}）`}
       >
@@ -185,22 +187,50 @@ export default function HeaderBar() {
         <RefreshCw size={15} />
       </HeaderButton>
 
-      {/* 中央: ドキュメント情報 */}
+      {/* 中央: ドキュメント情報 / Worker 実行進捗 */}
       <div className="flex flex-1 items-center justify-center gap-2">
-        <span className="text-app-muted font-mono-nums">
-          {docWidth}×{docHeight}
-        </span>
-        {/* メモリ使用量（仕様書 3: 予算に対する割合、config: memory.budget_mb） */}
-        <span
-          className="font-mono-nums"
-          style={{
-            color: usagePercent(memoryUsage) >= 80 ? "var(--color-danger)" : muted,
-            fontSize: "0.85em",
-          }}
-          title={`メモリ使用量 / 予算 ${Math.round(usagePercent(memoryUsage))}%（config: memory.budget_mb）`}
-        >
-          メモリ {formatUsage(memoryUsage)}
-        </span>
+        {workerJob ? (
+          /* 進捗表示 + キャンセル（仕様書 2.2: 実行中は編集をロックしキャンセル可能） */
+          <div className="flex items-center gap-2">
+            <span className="font-mono-nums" style={{ fontSize: "0.85em" }}>
+              {workerJob.label}中… {Math.round(workerJob.progress * 100)}%
+            </span>
+            <progress
+              className="h-2 w-40"
+              max={100}
+              value={Math.round(workerJob.progress * 100)}
+            />
+            <button
+              className="rounded px-2 py-0.5"
+              style={{
+                border: "1px solid var(--color-border)",
+                color: "var(--color-danger)",
+                fontSize: "0.85em",
+              }}
+              title="実行中の処理をキャンセル（画像は実行前の状態のまま）"
+              onClick={cancelWorker}
+            >
+              キャンセル
+            </button>
+          </div>
+        ) : (
+          <>
+            <span className="text-app-muted font-mono-nums">
+              {docWidth}×{docHeight}
+            </span>
+            {/* メモリ使用量（仕様書 3: 予算に対する割合、config: memory.budget_mb） */}
+            <span
+              className="font-mono-nums"
+              style={{
+                color: usagePercent(memoryUsage) >= 80 ? "var(--color-danger)" : muted,
+                fontSize: "0.85em",
+              }}
+              title={`メモリ使用量 / 予算 ${Math.round(usagePercent(memoryUsage))}%（config: memory.budget_mb）`}
+            >
+              メモリ {formatUsage(memoryUsage)}
+            </span>
+          </>
+        )}
       </div>
 
       {/* ズーム操作 */}

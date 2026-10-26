@@ -10,6 +10,8 @@ import type { Layer } from "./layerUtils";
 import { MemoryBudget, type MemoryUsage } from "./memoryBudget";
 import { useEditorStore } from "./editorStore";
 import { isTypingTarget, matchesShortcut } from "./shortcuts";
+import type { WorkerJobState } from "./workerHost";
+import type { BucketParams } from "./bucketTools";
 import type {
   Rect,
   SelectionState,
@@ -77,6 +79,20 @@ export interface EditorContextValue {
   setBucketMode: (m: BucketMode) => void;
   setBucketTolerance: (n: number) => void;
   setBucketJitter: (n: number) => void;
+  /** バケツ実行（閾値以上は Worker・進捗表示とキャンセル付き。仕様書 2.2 / 4.2） */
+  runBucket: (
+    layerId: string,
+    mode: BucketMode,
+    params: BucketParams,
+    start: { x: number; y: number },
+    mask: Uint8Array | null
+  ) => void;
+
+  // --- Worker 実行基盤（仕様書 2.2: 進捗・キャンセル・編集ロック） ---
+  /** 実行中の Worker ジョブ（null = 待機なし。実行中は編集操作をロックする） */
+  workerJob: WorkerJobState | null;
+  /** 実行中の Worker ジョブをキャンセルする（画像は実行前の状態のまま） */
+  cancelWorker: () => void;
 
   // --- レイヤー（仕様書 4.5） ---
   layers: Layer[]; // index 0 = 下層
@@ -205,6 +221,8 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTypingTarget(e.target)) return;
       const store = useEditorStore.getState();
+      // Worker 実行中は編集・履歴操作をロック（仕様書 2.2。ズーム/グリッドは可）
+      const locked = store.workerJob !== null;
       if (e.key === "Escape") {
         // 選択解除
         store.clearSelection();
@@ -212,13 +230,13 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       }
       if (matchesShortcut(e, config.shortcuts.undo)) {
         e.preventDefault();
-        store.undo();
+        if (!locked) store.undo();
       } else if (
         matchesShortcut(e, config.shortcuts.redo) ||
         matchesShortcut(e, config.shortcuts.redo_alternative)
       ) {
         e.preventDefault();
-        store.redo();
+        if (!locked) store.redo();
       } else if (matchesShortcut(e, config.shortcuts.toggle_grid)) {
         e.preventDefault();
         store.toggleGrid();
