@@ -120,7 +120,7 @@ src/
 │   ├── ioTools.ts          # 読み込み / リサイズ / クロップ / 書き出し
 │   ├── memoryBudget.ts     # メモリ予算（MemoryBudget）
 │   ├── history.ts          # Undo/Redo（パッチ方式の履歴エンジン）
-│   ├── compositor.ts       # レイヤー合成キャッシュ
+│   ├── compositor.ts       # レイヤー合成（表示範囲のみ・Uint32Array から直接）
 │   └── viewportRenderer.ts # ビューポート描画パイプライン
 └── App.tsx
 electron/

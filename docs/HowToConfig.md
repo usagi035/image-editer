@@ -282,3 +282,4 @@ theme:
 | 履歴（`history.*`） | 実装済み（Undo/Redo: `history.ts` + ヘッダーボタン + `Ctrl+Z`/`Ctrl+Y`） |
 | Zustand / Vitest | `feature/state-zustand` |
 | ビューポート範囲のみの合成 + 画面に合わせる（MS2） | 実装済み（`feature/viewport-region`）: `compositor.ts` が表示中ドキュメント範囲∩ダーティ矩形のみ合成。`shortcuts.fit` = `Ctrl+0` / `zoom_reset` = `Ctrl+1` |
+| レイヤー実体を `Uint32Array` に（MS4） | 実装済み（`feature/layer-uint32`）: `Layer` は非表示 Canvas を持たず `pixels: Uint32Array` を保持。描画・バケツ・色置換・HSV・履歴パッチはすべて直接ピクセル操作 |
