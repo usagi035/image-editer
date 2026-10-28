@@ -432,8 +432,11 @@ export default function CanvasViewport() {
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      // 中ボタン、または Space+左ドラッグでパン
-      if (e.button === 1 || (e.button === 0 && spaceRef.current)) {
+      // 中ボタン、Space+左ドラッグ、または移動ツールの左ドラッグでパン（Worker 実行中も可: 仕様書 2.2 / 3）
+      if (
+        e.button === 1 ||
+        (e.button === 0 && (spaceRef.current || tool === "hand"))
+      ) {
         startPan(e);
         return;
       }
@@ -664,7 +667,7 @@ export default function CanvasViewport() {
     ]
   );
 
-  const cursor = panning ? "grabbing" : spaceHeld ? "grab" : "crosshair";
+  const cursor = panning ? "grabbing" : spaceHeld || tool === "hand" ? "grab" : "crosshair";
 
   return (
     <div

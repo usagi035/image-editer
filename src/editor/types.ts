@@ -10,6 +10,7 @@ export type ToolId =
   | "colorReplace" // 色置換
   | "rectSelect" // 矩形選択
   | "magicWand" // 魔術の杖
+  | "hand" // 移動（ビューポートのパン）
   | "crop" // トリミング
   | "resize" // リサイズ
   | "hsv"; // HSV/明度/コントラスト調整
