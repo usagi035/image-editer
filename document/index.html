@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Image Editor — 使い方</title>
+<style>
+  /* ============ Dark Blue × Glassmorphism ============ */
+  :root {
+    --bg-deep: #060d1a;
+    --bg-mid: #0a1a33;
+    --accent: #38bdf8;
+    --accent-soft: #7dd3fc;
+    --text: #e2e8f0;
+    --text-muted: #94a3b8;
+    --glass-bg: linear-gradient(160deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03));
+    --glass-border: rgba(148, 197, 255, 0.16);
+    --glass-shadow: 0 10px 40px rgba(3, 10, 24, 0.55), inset 0 1px 0 rgba(255,255,255,0.08);
+    --radius: 18px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic UI",
+      "Meiryo", system-ui, sans-serif;
+    color: var(--text);
+    line-height: 1.75;
+    background:
+      radial-gradient(1200px 800px at 85% -10%, rgba(56, 130, 246, 0.24), transparent 60%),
+      radial-gradient(900px 700px at -10% 35%, rgba(14, 165, 233, 0.14), transparent 55%),
+      linear-gradient(180deg, #071022 0%, var(--bg-mid) 45%, var(--bg-deep) 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+  a { color: var(--accent-soft); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    box-shadow: var(--glass-shadow);
+  }
+
+  /* ---- ナビ ---- */
+  nav {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px;
+    padding: 10px 20px;
+    margin: 12px auto 0;
+    max-width: 1080px;
+    border-radius: 14px;
+  }
+  nav .brand { font-weight: 700; margin-right: 10px; color: #fff; white-space: nowrap; }
+  nav .brand span { color: var(--accent); }
+  nav a { color: var(--text-muted); font-size: 0.88rem; padding: 4px 8px; border-radius: 8px; transition: all .2s; }
+  nav a:hover { color: #fff; background: rgba(56, 189, 248, 0.12); text-decoration: none; }
+  nav a.active { color: var(--accent-soft); background: rgba(56, 189, 248, 0.14); }
+
+  main { max-width: 1080px; margin: 0 auto; padding: 20px 20px 80px; }
+
+  /* ---- ヒーロー ---- */
+  header.hero { text-align: center; padding: 64px 24px 44px; }
+  .hero h1 {
+    font-size: clamp(1.8rem, 4vw, 2.8rem);
+    letter-spacing: 0.02em;
+    background: linear-gradient(90deg, #fff 20%, var(--accent-soft) 80%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+  }
+  .hero p.lead { color: var(--text-muted); margin-top: 10px; font-size: 1.02rem; }
+  .badges { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 20px; }
+  .badge {
+    font-size: 0.78rem; padding: 4px 14px; border-radius: 999px;
+    background: rgba(56, 189, 248, 0.10); border: 1px solid rgba(56, 189, 248, 0.35);
+    color: var(--accent-soft);
+  }
+  .cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 28px; }
+  .btn {
+    display: inline-block; padding: 10px 26px; border-radius: 12px; font-weight: 600;
+    transition: transform .15s, box-shadow .15s;
+  }
+  .btn:hover { text-decoration: none; transform: translateY(-1px); }
+  .btn.primary {
+    background: linear-gradient(135deg, #0ea5e9, #2563eb); color: #fff;
+    box-shadow: 0 8px 24px rgba(14, 165, 233, 0.35);
+  }
+  .btn.ghost { border: 1px solid var(--glass-border); color: var(--text); background: rgba(255,255,255,0.04); }
+
+  /* ---- セクション ---- */
+  section { margin-top: 28px; padding: 28px 28px 30px; scroll-margin-top: 76px; }
+  section > h2 {
+    font-size: 1.3rem; margin-bottom: 6px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  section > h2::before {
+    content: ""; width: 5px; height: 22px; border-radius: 3px;
+    background: linear-gradient(180deg, var(--accent), #2563eb);
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.6);
+  }
+  section > p.sub { color: var(--text-muted); font-size: 0.92rem; margin-bottom: 18px; }
+
+  h3 { font-size: 1.02rem; margin: 20px 0 10px; color: var(--accent-soft); }
+  ul.list { padding-left: 1.3em; }
+  ul.list li { margin: 6px 0; }
+  ul.list li::marker { color: var(--accent); }
+
+  /* ---- グリッドカード ---- */
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(225px, 1fr)); }
+  .card {
+    padding: 14px 16px;
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(148, 197, 255, 0.12);
+    border-radius: 14px;
+    transition: border-color .2s, transform .2s;
+  }
+  .card:hover { border-color: rgba(56, 189, 248, 0.45); transform: translateY(-2px); }
+  .card .icon { font-size: 1.35rem; }
+  .card h4 { font-size: 0.95rem; margin: 4px 0 4px; color: #fff; }
+  .card p { font-size: 0.82rem; color: var(--text-muted); line-height: 1.6; }
+
+  /* ---- ショートカット表 ---- */
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid rgba(148, 197, 255, 0.10); }
+  th { color: var(--accent-soft); font-size: 0.82rem; letter-spacing: 0.05em; }
+  tbody tr:hover { background: rgba(56, 189, 248, 0.05); }
+  td.keys { white-space: nowrap; }
+  kbd {
+    display: inline-block; padding: 1px 8px; margin: 1px 2px; border-radius: 6px;
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.8em;
+    background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.35);
+    color: #bae6fd;
+  }
+
+  /* ---- ステップ ---- */
+  ol.steps { list-style: none; counter-reset: step; display: grid; gap: 12px; }
+  ol.steps li {
+    counter-increment: step; position: relative; padding: 12px 16px 12px 56px;
+    background: rgba(255,255,255,0.045); border: 1px solid rgba(148,197,255,0.12); border-radius: 14px;
+  }
+  ol.steps li::before {
+    content: counter(step);
+    position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #0ea5e9, #2563eb); color: #fff;
+    font-weight: 700; font-size: 0.9rem;
+  }
+  ol.steps li b { color: #fff; }
+  ol.steps li p { font-size: 0.88rem; color: var(--text-muted); }
+
+  .note {
+    margin-top: 16px; padding: 12px 16px; border-radius: 12px; font-size: 0.88rem;
+    background: rgba(56, 189, 248, 0.07); border: 1px solid rgba(56, 189, 248, 0.25);
+    color: #cfe8fb;
+  }
+
+  footer { text-align: center; color: var(--text-muted); font-size: 0.8rem; margin-top: 48px; }
+
+  @media (max-width: 640px) {
+    section { padding: 20px 16px; }
+    th, td { padding: 8px 6px; font-size: 0.82rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="glass">
+  <span class="brand">Image<span>·</span>Editor</span>
+  <a href="#start">クイックスタート</a>
+  <a href="#tools">ツール</a>
+  <a href="#view">ズーム / 画像移動</a>
+  <a href="#select">選択 &amp; 貼り付け</a>
+  <a href="#layers">レイヤー</a>
+  <a href="#shortcuts">ショートカット</a>
+  <a href="#worker">重い画像</a>
+  <a href="#config">設定 / 配布版</a>
+</nav>
+
+<main>
+
+  <header class="hero">
+    <h1>Image Editor 使い方</h1>
+    <p class="lead">Minecraft テクスチャ制作向けドット絵エディタ — 16×16 から最大 8192×8192px まで</p>
+    <div class="badges">
+      <span class="badge">Web / デスクトップ両対応</span>
+      <span class="badge">最大 8192×8192px</span>
+      <span class="badge">レイヤー対応</span>
+      <span class="badge">Undo / Redo</span>
+      <span class="badge">ポータブル exe</span>
+    </div>
+    <div class="cta">
+      <a class="btn primary" href="#start">はじめに</a>
+      <a class="btn ghost" href="#shortcuts">ショートカット一覧</a>
+    </div>
+  </header>
+
+  <!-- ================= クイックスタート ================= -->
+  <section id="start" class="glass">
+    <h2>クイックスタート</h2>
+    <p class="sub">起動から書き出しまで、基本の流れはこの4ステップです。</p>
+    <ol class="steps">
+      <li>
+        <b>画像を用意する</b>
+        <p>ヘッダーの「新規」でサイズを指定、または「開く」で PNG / JPEG / WebP / GIF を読み込み。<strong>キャンバスへのドラッグ＆ドロップ</strong>でも開けます。</p>
+      </li>
+      <li>
+        <b>ツールを選んで描く</b>
+        <p>左パネルからツールを選択。ペンは 1〜16px・Pixel-Perfect（ジグザグ抑止）対応。右パネルで太さ・ミラー描画などのオプションを調整します。</p>
+      </li>
+      <li>
+        <b>ズーム・移動で細部を確認</b>
+        <p>ホイールで拡大縮小（カーソル位置が基準）。「移動」ツールでドラッグすると画像そのものを動かせます。<kbd>Ctrl</kbd>+<kbd>0</kbd> で全体表示に。</p>
+      </li>
+      <li>
+        <b>書き出す</b>
+        <p><kbd>Ctrl</kbd>+<kbd>S</kbd> で即エクスポート（PNG / JPEG / WebP × 1x〜8x）。拡大時もドットが崩れません。</p>
+      </li>
+    </ol>
+  </section>
+
+  <!-- ================= ツール ================= -->
+  <section id="tools" class="glass">
+    <h2>ツール一覧</h2>
+    <p class="sub">左パネルから選択します。ツールを変えると右パネルの「ツールオプション」が切り替わります。</p>
+
+    <h3>基本描画</h3>
+    <div class="grid">
+      <div class="card"><span class="icon">✏️</span><h4>ペン</h4><p>1px 単位で描画。太さ 1〜16px、Pixel-Perfect で階段状のジグザグを抑止。ミラー描画（縦 / 横 / 両方）対応。</p></div>
+      <div class="card"><span class="icon">🧽</span><h4>消しゴム</h4><p>ピクセルを完全透明に。太さはペンと同じく 1〜16px。ミラー描画対応。</p></div>
+      <div class="card"><span class="icon">🪣</span><h4>特殊バケツ</h4><p>5 モード: Flood（通常）/ Global（全域同色置換）/ Noise（ノイズ）/ Dither（市松）/ Eraser（一括消去）。許容値 0〜255。</p></div>
+      <div class="card"><span class="icon">💧</span><h4>スポイト</h4><p>クリック位置の色を取得して主色にセット。参照先は「合成結果 / 現在のレイヤー」を切替可能。</p></div>
+      <div class="card"><span class="icon">📏</span><h4>直線</h4><p>ドラッグ中はプレビュー、離した時点で確定。Shift で 45 度固定。</p></div>
+      <div class="card"><span class="icon">⬜</span><h4>矩形</h4><p>「枠のみ / 塗り」を切替可能。Shift で正方形に固定。</p></div>
+      <div class="card"><span class="icon">⭕</span><h4>楕円</h4><p>「枠のみ / 塗り」を切替可能。Shift で正円に固定。</p></div>
+    </div>
+
+    <h3>選択・編集</h3>
+    <div class="grid">
+      <div class="card"><span class="icon">⬚</span><h4>矩形選択</h4><p>ドラッグで範囲指定。Shift=加算 / Alt=減算。選択外への描画は自動的に遮断されます。</p></div>
+      <div class="card"><span class="icon">🪄</span><h4>魔術の杖</h4><p>クリックした色の領域を選択。「隣接のみ / 全域」と許容値 0〜255 を切替可能。</p></div>
+      <div class="card"><span class="icon">✋</span><h4>移動（ハンド）</h4><p>左ドラッグで<strong>画像を移動</strong>（パン）。見切れを直すのに拡大縮小し直す必要はありません。</p></div>
+      <div class="card"><span class="icon">🎭</span><h4>色置換</h4><p>色 A → 色 B に一括置換。「レイヤー全体 / 選択範囲」から選択可能。</p></div>
+      <div class="card"><span class="icon">✂️</span><h4>トリミング</h4><p>ドラッグ範囲で全レイヤーを一括切り出し（1 回の Undo で復元可能）。</p></div>
+      <div class="card"><span class="icon">📐</span><h4>リサイズ</h4><p>全レイヤーをスケール。拡大はニアレストネイバーでドット絵の輪郭を維持します。</p></div>
+      <div class="card"><span class="icon">🎚️</span><h4>色調整（HSV）</h4><p>Hue / 彩度 / 明度 / コントラストをスライダーで即時プレビュー → 「適用」で確定。</p></div>
+    </div>
+  </section>
+
+  <!-- ================= ズーム・移動 ================= -->
+  <section id="view" class="glass">
+    <h2>ズーム &amp; 画像の移動</h2>
+    <p class="sub">大きく拡大しても、見切れたら手で動かして戻せます。</p>
+    <table>
+      <tbody>
+        <tr><td>ズームイン / アウト</td><td class="keys"><kbd>マウスホイール</kbd>（カーソル位置を基準に拡大縮小 / 1/16〜64倍）</td></tr>
+        <tr><td>画像を移動（パン）</td><td class="keys">「移動」ツール + ドラッグ / <kbd>Space</kbd>+ドラッグ / <kbd>中ボタンドラッグ</kbd></td></tr>
+        <tr><td>画面に合わせる</td><td class="keys"><kbd>Ctrl</kbd>+<kbd>0</kbd>（画像全体が収まる最大ズームで中央表示）</td></tr>
+        <tr><td>100% 表示に戻す</td><td class="keys"><kbd>Ctrl</kbd>+<kbd>1</kbd></td></tr>
+        <tr><td>グリッド表示切替</td><td class="keys"><kbd>G</kbd>（拡大時のみ表示され、ドットの境界が見えます）</td></tr>
+      </tbody>
+    </table>
+    <div class="note">💡 <strong>画像が見切れたときは縮小して拡大し直す必要はありません。</strong>「移動」ツールでドラッグするか <kbd>Space</kbd> を押しながらドラッグすれば、その場で画像を動かせます。</div>
+  </section>
+
+  <!-- ================= 選択・貼り付け ================= -->
+  <section id="select" class="glass">
+    <h2>選択 &amp; コピー / 貼り付け</h2>
+    <p class="sub">選択中はマーチングアンツ（点線アニメーション）で範囲を表示します。</p>
+    <ul class="list">
+      <li><strong>選択範囲の内側だけ</strong>が描画・塗りつぶし・貼り付けの対象になります（範囲外は自動遮断）。</li>
+      <li>コピー <kbd>Ctrl</kbd>+<kbd>C</kbd> / 切り取り <kbd>Ctrl</kbd>+<kbd>X</kbd> / 貼り付け <kbd>Ctrl</kbd>+<kbd>V</kbd>（内部クリップボード）。</li>
+      <li>貼り付けた内容は<strong>浮遊状態</strong>になり、ドラッグで位置を調整できます。</li>
+      <li>確定は <kbd>Enter</kbd> またはツール切替、破棄は <kbd>Esc</kbd>。</li>
+    </ul>
+  </section>
+
+  <!-- ================= レイヤー ================= -->
+  <section id="layers" class="glass">
+    <h2>レイヤー</h2>
+    <p class="sub">右パネルの「レイヤー」で管理します。下層から順に合成されます。</p>
+    <ul class="list">
+      <li>追加・複製・削除（最後の 1 枚は削除不可）・上下移動・下のレイヤーと統合・全レイヤー統合。</li>
+      <li>不透明度（0〜100%）と表示 / 非表示をレイヤーごとに設定可能。</li>
+      <li>描画・バケツ・色置換などは<strong>現在選択中のレイヤー</strong>にのみ作用します。</li>
+    </ul>
+  </section>
+
+  <!-- ================= ショートカット ================= -->
+  <section id="shortcuts" class="glass">
+    <h2>キーボードショートカット</h2>
+    <p class="sub">すべて <code>config.yaml</code> で変更できます（表は既定値）。</p>
+    <table>
+      <thead>
+        <tr><th>操作</th><th>ショートカット</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>エクスポート（即書き出し）</td><td class="keys"><kbd>Ctrl</kbd>+<kbd>S</kbd></td></tr>
+        <tr><td>元に戻す / やり直す</td><td class="keys"><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd>（<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>）</td></tr>
+        <tr><td>ズームイン / アウト</td><td class="keys"><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>Ctrl</kbd>+<kbd>-</kbd></td></tr>
+        <tr><td>画面に合わせる / 100% 表示</td><td class="keys"><kbd>Ctrl</kbd>+<kbd>0</kbd> / <kbd>Ctrl</kbd>+<kbd>1</kbd></td></tr>
+        <tr><td>グリッド表示切替</td><td class="keys"><kbd>G</kbd></td></tr>
+        <tr><td>パン（画像の移動）</td><td class="keys"><kbd>Space</kbd>+ドラッグ / 中ボタンドラッグ /「移動」ツール</td></tr>
+        <tr><td>コピー / 切り取り / 貼り付け</td><td class="keys"><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>X</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd></td></tr>
+        <tr><td>全選択 / 選択解除</td><td class="keys"><kbd>Ctrl</kbd>+<kbd>A</kbd> / <kbd>Ctrl</kbd>+<kbd>D</kbd></td></tr>
+        <tr><td>選択反転</td><td class="keys"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd></td></tr>
+        <tr><td>貼り付けの確定 / 破棄・選択解除</td><td class="keys"><kbd>Enter</kbd> / <kbd>Esc</kbd></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ================= Worker ================= -->
+  <section id="worker" class="glass">
+    <h2>大きな画像でも快適に</h2>
+    <p class="sub">重い処理は自動的に裏で実行され、画面が固まりません。</p>
+    <ul class="list">
+      <li>対象ピクセル数が閾値（既定 100 万 px）以上のバケツ・色置換・図形は <strong>Web Worker</strong> で実行。</li>
+      <li>実行中はヘッダーに<strong>進捗表示とキャンセルボタン</strong>を表示。キャンセルすれば実行前の状態のまま戻ります。</li>
+      <li>処理中は編集ツールと Undo/Redo がロックされるので、誤って操作が重なることはありません。</li>
+      <li>合成表示も「表示中の範囲のみ」を再計算するため、8192×8192 でもメモリは画面サイズが上限です。</li>
+    </ul>
+  </section>
+
+  <!-- ================= 設定・配布版 ================= -->
+  <section id="config" class="glass">
+    <h2>設定 &amp; 配布版（ポータブル）</h2>
+    <p class="sub">色・フォント・閾値・ショートカットなどの設定はすべて <code>config.yaml</code> で管理します。</p>
+    <ul class="list">
+      <li><strong>編集して即反映:</strong> ヘッダーの「設定再読み込み」ボタン。不正な値は既定値に戻し、警告をトースト表示します（アプリは続行）。</li>
+      <li><strong>デスクトップ版の設定場所:</strong> exe（またはフォルダ）の隣の <code>data/config.yaml</code>。USB メモリごと持ち運べば設定も一緒に移動します。</li>
+      <li><strong>配布:</strong> <code>npm run build:exe</code> で単一のポータブル exe を生成（インストール不要・DLL 同梱）。<code>ImageEditor-Portable-*.exe</code> を渡すだけで使えます。</li>
+    </ul>
+    <div class="note">🔧 開発者向けのビルド手順はリポジトリの <a href="../docs/HowToBuild.md">docs/HowToBuild.md</a>、設定の詳細は <a href="../docs/HowToConfig.md">docs/HowToConfig.md</a> を参照してください。</div>
+  </section>
+
+  <footer>
+    Image Editor — Minecraft テクスチャ向けドット絵エディタ<br />
+    React + TypeScript + Vite + Electron / 設定は config.yaml 駆動
+  </footer>
+
+</main>
+
+<script>
+  // ナビの現在位置ハイライト（IntersectionObserver）
+  const links = Array.from(document.querySelectorAll('nav a[href^="#"]'));
+  const map = new Map(links.map(a => [a.getAttribute('href').slice(1), a]));
+  const obs = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(a => a.classList.remove('active'));
+        const a = map.get(e.target.id);
+        if (a) a.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-30% 0px -60% 0px' });
+  document.querySelectorAll('section[id]').forEach(s => obs.observe(s));
+</script>
+
+</body>
+</html>
