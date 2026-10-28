@@ -4,6 +4,7 @@ import {
   Contrast,
   Crop,
   Eraser,
+  Hand,
   Minus,
   PaintBucket,
   Pencil,
@@ -33,10 +34,11 @@ const TOOLS: ToolDef[] = [
   { id: "line", icon: Minus, label: "直線", group: 1 },
   { id: "rect", icon: Square, label: "矩形", group: 1 },
   { id: "ellipse", icon: Circle, label: "楕円", group: 1 },
-  // 2: 範囲選択・色置換・切り抜き
+  // 2: 範囲選択・移動・色置換・切り抜き
   { id: "colorReplace", icon: Replace, label: "色置換", group: 2 },
   { id: "rectSelect", icon: SquareDashed, label: "矩形選択", group: 2 },
   { id: "magicWand", icon: Wand, label: "魔術の杖", group: 2 },
+  { id: "hand", icon: Hand, label: "移動", group: 2 },
   { id: "crop", icon: Crop, label: "トリミング", group: 2 },
   // 3: ユーティリティ（リサイズ・色調整）
   { id: "resize", icon: Scaling, label: "リサイズ", group: 3 },

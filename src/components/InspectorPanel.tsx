@@ -707,6 +707,8 @@ function ToolOptionsSection() {
         return <RectSelectOptions />;
       case "magicWand":
         return <MagicWandOptions />;
+      case "hand":
+        return <Hint text="ドラッグで画像を移動します（Space+ドラッグ / 中ボタンドラッグでも移動できます）" />;
       case "crop":
         return <CropOptions />;
       case "resize":
