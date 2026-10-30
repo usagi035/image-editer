@@ -180,14 +180,15 @@ ipcMain.handle("config:path", () => ensureUserConfig());
 /* ---------------- IPC: ファイル読み込み ---------------- */
 
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif", "bmp"];
+const OPEN_EXTENSIONS = ["ora", ...IMAGE_EXTENSIONS];
 
 ipcMain.handle("image:open", async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   const result = await dialog.showOpenDialog(win, {
-    title: "画像を開く",
+    title: "画像 / プロジェクトを開く",
     properties: ["openFile"],
     filters: [
-      { name: "画像ファイル", extensions: IMAGE_EXTENSIONS },
+      { name: "画像 / プロジェクト", extensions: OPEN_EXTENSIONS },
       { name: "すべてのファイル", extensions: ["*"] },
     ],
   });
@@ -197,13 +198,15 @@ ipcMain.handle("image:open", async (event) => {
     const data = fs.readFileSync(filePath);
     const ext = path.extname(filePath).slice(1).toLowerCase() || "png";
     const mime =
-      ext === "jpg" || ext === "jpeg"
-        ? "image/jpeg"
-        : ext === "webp"
-          ? "image/webp"
-          : ext === "gif"
-            ? "image/gif"
-            : "image/png";
+      ext === "ora"
+        ? "image/openraster"
+        : ext === "jpg" || ext === "jpeg"
+          ? "image/jpeg"
+          : ext === "webp"
+            ? "image/webp"
+            : ext === "gif"
+              ? "image/gif"
+              : "image/png";
     return {
       path: filePath,
       name: path.basename(filePath),
@@ -237,6 +240,36 @@ ipcMain.handle("image:save", async (event, payload) => {
     return { canceled: false, path: result.filePath };
   } catch (err) {
     console.error("[image] 保存失敗:", err);
+    dialog.showErrorBox("保存に失敗しました", String(err?.message || err));
+    return { canceled: true };
+  }
+});
+
+/* ---------------- IPC: .ora プロジェクト保存（仕様書 5.1） ---------------- */
+
+ipcMain.handle("ora:save", async (event, payload) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const defaultName = payload?.defaultName || "untitled.ora";
+  const existingPath = typeof payload?.path === "string" ? payload.path : null;
+  let targetPath = existingPath;
+  // 未保存（docPath なし）なら名前付きダイアログ（仕様書 5.1）
+  if (!targetPath) {
+    const result = await dialog.showSaveDialog(win, {
+      title: "名前を付けて保存",
+      defaultPath: defaultName,
+      filters: [
+        { name: "OpenRaster プロジェクト", extensions: ["ora"] },
+        { name: "すべてのファイル", extensions: ["*"] },
+      ],
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+    targetPath = result.filePath;
+  }
+  try {
+    fs.writeFileSync(targetPath, Buffer.from(payload?.data ?? []));
+    return { canceled: false, path: targetPath };
+  } catch (err) {
+    console.error("[ora] 保存失敗:", err);
     dialog.showErrorBox("保存に失敗しました", String(err?.message || err));
     return { canceled: true };
   }

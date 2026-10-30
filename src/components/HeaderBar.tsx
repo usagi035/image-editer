@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Download,
   FilePlus,
   FolderOpen,
   Grid3X3,
@@ -13,7 +14,6 @@ import {
 } from "lucide-react";
 import { useConfig } from "../config/ConfigContext";
 import { useEditor } from "../editor/EditorContext";
-import type { ExportFormat } from "../editor/ioTools";
 import { formatUsage, usagePercent } from "../editor/memoryBudget";
 import { isTypingTarget, matchesShortcut } from "../editor/shortcuts";
 import ExportDialog from "./ExportDialog";
@@ -72,7 +72,8 @@ export default function HeaderBar() {
     toggleGrid,
     newDocument,
     loadImage,
-    exportImage,
+    loadOra,
+    saveOra,
     memoryUsage,
     canUndo,
     canRedo,
@@ -86,13 +87,38 @@ export default function HeaderBar() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  /** ファイルをドキュメントへ読み込む（.ora はプロジェクトとして、他は単一レイヤー） */
+  const openFromBytes = async (file: File) => {
+    if (file.name.toLowerCase().endsWith(".ora")) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      await loadOra(bytes, file.name);
+    } else {
+      const url = URL.createObjectURL(file);
+      try {
+        await loadImage(url, file.name);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+  };
+
   /** ファイル読み込み（Electron ダイアログ or ブラウザ file input） */
   const openFile = async () => {
     setLoadError(null);
     try {
       if (window.electronAPI?.openImageFile) {
         const picked = await window.electronAPI.openImageFile();
-        if (picked) await loadImage(picked.dataUrl, picked.name);
+        if (!picked) return;
+        if (picked.name.toLowerCase().endsWith(".ora")) {
+          // dataUrl の base64 部分を bytes にして .ora として読む
+          const comma = picked.dataUrl.indexOf(",");
+          const bin = atob(picked.dataUrl.slice(comma + 1));
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          await loadOra(bytes, picked.name, picked.path);
+        } else {
+          await loadImage(picked.dataUrl, picked.name);
+        }
         return;
       }
       fileInputRef.current?.click();
@@ -107,29 +133,24 @@ export default function HeaderBar() {
     if (!file) return;
     setLoadError(null);
     try {
-      const url = URL.createObjectURL(file);
-      await loadImage(url, file.name);
-      URL.revokeObjectURL(url);
+      await openFromBytes(file);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "読み込みに失敗しました");
     }
   };
 
-  // Ctrl+S: 既定形式・1x で即書き出し（config: shortcuts.save / export.*）
+  // Ctrl+S: .ora プロジェクト保存（config: shortcuts.save / 仕様書 5.1）
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTypingTarget(e.target)) return;
       if (matchesShortcut(e, config.shortcuts.save)) {
         e.preventDefault();
-        void exportImage(
-          config.export.default_format as ExportFormat,
-          config.export.scales[0] ?? 1
-        );
+        void saveOra();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [config.export.default_format, config.export.scales, config.shortcuts.save, exportImage]);
+  }, [config.shortcuts.save, saveOra]);
 
   const accent = config.theme.accent;
   const muted = config.theme.text_muted;
@@ -153,15 +174,22 @@ export default function HeaderBar() {
       >
         <FilePlus size={15} />
       </HeaderButton>
-      <HeaderButton label="開く" onClick={() => void openFile()} title="画像ファイルを読み込む（PNG/JPEG/WebP/GIF）">
+      <HeaderButton label="開く" onClick={() => void openFile()} title="ファイルを開く（.ora / PNG / JPEG / WebP / GIF）">
         <FolderOpen size={15} />
       </HeaderButton>
       <HeaderButton
         label="保存"
-        onClick={() => setExportOpen(true)}
-        title={`エクスポート（${config.shortcuts.save} でも書き出し）`}
+        onClick={() => void saveOra()}
+        title={`プロジェクトを .ora に保存（${config.shortcuts.save}・未保存は名前付き）`}
       >
         <Save size={15} />
+      </HeaderButton>
+      <HeaderButton
+        label="書き出し"
+        onClick={() => setExportOpen(true)}
+        title="画像として書き出し（PNG / JPEG / WebP・解像度倍率対応）"
+      >
+        <Download size={15} />
       </HeaderButton>
       <HeaderButton
         label="元に戻す"
@@ -288,7 +316,7 @@ export default function HeaderBar() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif"
+        accept=".ora,image/openraster,image/png,image/jpeg,image/webp,image/gif"
         className="hidden"
         onChange={(e) => void onFileSelected(e)}
       />
