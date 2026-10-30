@@ -245,7 +245,7 @@
       <div class="card"><span class="icon">🎭</span><h4>色置換</h4><p>色 A → 色 B に一括置換。「レイヤー全体 / 選択範囲」から選択可能。</p></div>
       <div class="card"><span class="icon">✂️</span><h4>トリミング</h4><p>ドラッグ範囲で全レイヤーを一括切り出し（1 回の Undo で復元可能）。</p></div>
       <div class="card"><span class="icon">📐</span><h4>リサイズ</h4><p>全レイヤーをスケール。拡大はニアレストネイバーでドット絵の輪郭を維持します。</p></div>
-      <div class="card"><span class="icon">🎚️</span><h4>色調整（HSV）</h4><p>Hue / 彩度 / 明度 / コントラストをスライダーで即時プレビュー → 「適用」で確定。</p></div>
+      <div class="card"><span class="icon">🎚️</span><h4>色調整（HSV）</h4><p>Hue / 彩度 / 明度 / コントラストをスライダーで即時プレビュー → 「適用」で確定。「全レイヤーに適用」で選択中レイヤー以外にも一括適用できます。</p></div>
     </div>
   </section>
 
@@ -316,7 +316,7 @@
     <h2>大きな画像でも快適に</h2>
     <p class="sub">重い処理は自動的に裏で実行され、画面が固まりません。</p>
     <ul class="list">
-      <li>対象ピクセル数が閾値（既定 100 万 px）以上のバケツ・色置換・図形は <strong>Web Worker</strong> で実行。</li>
+      <li>対象ピクセル数が閾値（既定 100 万 px）以上のバケツ・色置換・図形・<strong>色調整（HSV 確定）</strong>は <strong>Web Worker</strong> で実行。</li>
       <li>実行中はヘッダーに<strong>進捗表示とキャンセルボタン</strong>を表示。キャンセルすれば実行前の状態のまま戻ります。</li>
       <li>処理中は編集ツールと Undo/Redo がロックされるので、誤って操作が重なることはありません。</li>
       <li>合成表示も「表示中の範囲のみ」を再計算するため、8192×8192 でもメモリは画面サイズが上限です。</li>
