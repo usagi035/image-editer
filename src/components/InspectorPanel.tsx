@@ -286,18 +286,24 @@ function HsvOptions() {
   const {
     adjust,
     adjustScope,
+    adjustAllLayers,
     setAdjustParam,
     setAdjustScope,
+    setAdjustAllLayers,
     resetAdjust,
     applyAdjust,
     selection,
     activeLayerId,
     layers,
+    workerJob,
   } = useEditor();
   const active = layers.find((l) => l.id === activeLayerId);
   const needSelection = adjustScope === "selection";
   const canApply =
-    !!active && !isIdentityAdjust(adjust) && (!needSelection || !!selection);
+    !!active &&
+    !isIdentityAdjust(adjust) &&
+    (!needSelection || !!selection) &&
+    !workerJob;
   const params: { key: AdjustParamKey; label: string; suffix: string }[] = [
     { key: "hue", label: "Hue", suffix: "°" },
     { key: "saturation", label: "彩度", suffix: "" },
@@ -307,7 +313,7 @@ function HsvOptions() {
 
   return (
     <div className="flex flex-col gap-2">
-      <Hint text="スライダー移動でリアルタイムプレビュー。適用で選択中レイヤーを書き換えます" />
+      <Hint text="スライダー移動でリアルタイムプレビュー（大画像は表示中の範囲のみ）。適用で書き換えます（閾値以上は裏で実行）" />
       {params.map((p) => (
         <SliderRow
           key={p.key}
@@ -336,6 +342,11 @@ function HsvOptions() {
           </option>
         </select>
       </label>
+      <ToggleRow
+        label="全レイヤーに適用"
+        checked={adjustAllLayers}
+        onChange={setAdjustAllLayers}
+      />
       <div className="flex gap-1">
         <button
           className="flex-1 rounded py-1 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"

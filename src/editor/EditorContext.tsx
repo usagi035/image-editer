@@ -203,10 +203,13 @@ export interface EditorContextValue {
   // --- 色調整（仕様書 4.4） ---
   adjust: AdjustParams;
   adjustScope: ReplaceScope;
+  /** true なら「全レイヤーに適用」（仕様書 4.4 のチェックで切替） */
+  adjustAllLayers: boolean;
   setAdjustParam: (key: AdjustParamKey, value: number) => void;
   setAdjustScope: (s: ReplaceScope) => void;
+  setAdjustAllLayers: (b: boolean) => void;
   resetAdjust: () => void;
-  /** 選択中レイヤーへ破壊的に適用（全レイヤーは MS9 のチェックで切替） */
+  /** 選択中レイヤーへ破壊的に適用（閾値以上は Worker 実行: 仕様書 2.2 / MS9） */
   applyAdjust: () => void;
 
   // --- ビューポート ---

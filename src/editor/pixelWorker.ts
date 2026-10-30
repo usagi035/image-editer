@@ -1,5 +1,6 @@
 import { applyFill, replacePixels, type BucketParams } from "./bucketTools";
 import { writeShape, type ShapeSpec } from "./shapeTools";
+import { adjustPixels, type AdjustParams } from "./adjustTools";
 import type { BucketMode, MirrorMode } from "../config/configTypes";
 
 /**
@@ -43,8 +44,20 @@ export interface ShapeJobMessage {
   mirror: MirrorMode;
 }
 
+/** Worker へ送る色調整ジョブ（pixels / mask は transfer で渡る独立バッファ） */
+export interface AdjustJobMessage {
+  kind: "adjust";
+  pixels: Uint32Array;
+  params: AdjustParams;
+  mask: Uint8Array | null;
+}
+
 /** Worker へ送るジョブの合流型 */
-export type PixelJobMessage = BucketJobMessage | ReplaceJobMessage | ShapeJobMessage;
+export type PixelJobMessage =
+  | BucketJobMessage
+  | ReplaceJobMessage
+  | ShapeJobMessage
+  | AdjustJobMessage;
 
 /** Worker から返すメッセージ */
 export type WorkerResponseMessage =
@@ -78,6 +91,9 @@ workerScope.onmessage = (e: MessageEvent) => {
       new Map(),
       (done, total) => onProgress(done, total)
     );
+  } else if (job.kind === "adjust") {
+    const { pixels, params, mask } = job;
+    adjustPixels(pixels, params, mask, onProgress);
   } else {
     return;
   }

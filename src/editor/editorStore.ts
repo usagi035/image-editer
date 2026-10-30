@@ -58,6 +58,7 @@ import {
 } from "./clipboardTools";
 import {
   needsWorker,
+  runAdjustJob,
   runBucketJob,
   runReplaceJob,
   runShapeJob,
@@ -151,6 +152,45 @@ function runWorkerPixelStep(
       return;
     }
     applyResult(result);
+    markDirty();
+    historyEngine.commitStep();
+    useEditorStore.setState((st) => ({ revision: st.revision + 1, ...historySync() }));
+  });
+}
+
+/**
+ * 複数レイヤー対象の Worker ジョブを 1 ステップとして並列実行する共通処理（仕様書 2.2）。
+ * 進捗は全レイヤーの加重平均。1 つでもキャンセル/失敗したら全結果を破棄し
+ * 画像は実行前のまま（履歴ステップも成立させない）。
+ */
+function runWorkerMultiLayerStep(
+  label: string,
+  layerIds: string[],
+  starts: Array<(onProgress: (progress: number) => void) => JobHandle>,
+  applyResults: (results: Uint32Array[]) => void
+): void {
+  useEditorStore.setState({ workerJob: { label, progress: 0 } });
+  historyEngine.beginStep(label);
+  for (const id of layerIds) historyEngine.captureLayerBefore(id);
+  const progresses = starts.map(() => 0);
+  const handles = starts.map((start, i) =>
+    start((progress) => {
+      progresses[i] = progress;
+      const avg = progresses.reduce((a, b) => a + b, 0) / progresses.length;
+      useEditorStore.setState({ workerJob: { label, progress: avg } });
+    })
+  );
+  workerCancel = () => {
+    for (const h of handles) h.cancel();
+  };
+  void Promise.all(handles.map((h) => h.promise)).then((results) => {
+    workerCancel = null;
+    useEditorStore.setState({ workerJob: null });
+    if (results.some((r) => !r)) {
+      historyEngine.abortStep();
+      return;
+    }
+    applyResults(results as Uint32Array[]);
     markDirty();
     historyEngine.commitStep();
     useEditorStore.setState((st) => ({ revision: st.revision + 1, ...historySync() }));
@@ -989,6 +1029,8 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     contrast: DEFAULT_CONFIG.tools.adjustment.contrast,
   },
   adjustScope: "layer",
+  adjustAllLayers: false,
+  setAdjustAllLayers: (b) => set({ adjustAllLayers: b }),
   setAdjustParam(key, value) {
     const lim = ADJUST_LIMITS[key];
     set((s) => ({
@@ -1012,38 +1054,82 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
   },
   applyAdjust() {
     const s = get();
+    if (s.workerJob) return; // 実行中は編集をロック（仕様書 2.2）
     if (isIdentityAdjust(s.adjust)) return;
-    // 対象は現在のレイヤー（改訂版仕様書 4.4: 全レイヤーはチェックで切替 → MS9）
-    const targets = s.layers.filter((l) => l.id === s.activeLayerId);
+    // 対象: 選択中レイヤー（「全レイヤーに適用」チェック時は全レイヤー: 改訂版仕様書 4.4）
+    const targets = s.adjustAllLayers
+      ? s.layers
+      : s.layers.filter((l) => l.id === s.activeLayerId);
+    if (targets.length === 0) return;
     for (const layer of targets) {
       // 履歴上限の事前確認（仕様書 4.6）
       if (!get().confirmHistoryStep(layer.width * layer.height * 4 * 2)) {
         return;
       }
     }
-    historyEngine.beginStep("色調整");
-    for (const layer of targets) {
-      historyEngine.captureLayerBefore(layer.id);
-      const mask = buildAdjustMask(
-        s.adjustScope,
-        s.selection,
-        layer.width,
-        layer.height
-      );
-      applyAdjustToLayer(layer, s.adjust, mask);
+
+    const totalPixels = targets.reduce((n, l) => n + l.width * l.height, 0);
+
+    if (!needsWorker(totalPixels, s.config.canvas.worker_pixel_threshold)) {
+      // 小さめ: メインスレッドで同期実行
+      historyEngine.beginStep("色調整");
+      for (const layer of targets) {
+        historyEngine.captureLayerBefore(layer.id);
+        const mask = buildAdjustMask(
+          s.adjustScope,
+          s.selection,
+          layer.width,
+          layer.height
+        );
+        applyAdjustToLayer(layer, s.adjust, mask);
+      }
+      historyEngine.commitStep();
+      const d = s.config.tools.adjustment;
+      markDirty(); // 色調整適用 → ビューポート全体を再合成
+      set({
+        revision: s.revision + 1,
+        adjust: {
+          hue: d.hue,
+          saturation: d.saturation,
+          value: d.value,
+          contrast: d.contrast,
+        },
+        ...historySync(),
+      });
+      return;
     }
-    historyEngine.commitStep();
+
+    // 大画像: Worker で実行（進捗表示・キャンセル可能・実行中は編集ロック）
+    runWorkerMultiLayerStep(
+      "色調整",
+      targets.map((l) => l.id),
+      targets.map((layer) => (onProgress) =>
+        runAdjustJob(
+          {
+            pixels: layer.pixels,
+            params: s.adjust,
+            mask: buildAdjustMask(
+              s.adjustScope,
+              s.selection,
+              layer.width,
+              layer.height
+            ),
+          },
+          onProgress
+        )
+      ),
+      (results) => {
+        targets.forEach((layer, i) => layer.pixels.set(results[i]));
+      }
+    );
     const d = s.config.tools.adjustment;
-    markDirty(); // 色調整適用 → ビューポート全体を再合成
     set({
-      revision: s.revision + 1,
       adjust: {
         hue: d.hue,
         saturation: d.saturation,
         value: d.value,
         contrast: d.contrast,
       },
-      ...historySync(),
     });
   },
 

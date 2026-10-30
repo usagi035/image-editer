@@ -90,3 +90,11 @@ export function runShapeJob(
 ): JobHandle {
   return runPixelJob({ kind: "shape", ...job }, onProgress);
 }
+
+/** 色調整（HSV/コントラスト）ジョブを Worker で実行する */
+export function runAdjustJob(
+  job: Omit<Extract<PixelJobMessage, { kind: "adjust" }>, "kind">,
+  onProgress?: (progress: number) => void
+): JobHandle {
+  return runPixelJob({ kind: "adjust", ...job }, onProgress);
+}

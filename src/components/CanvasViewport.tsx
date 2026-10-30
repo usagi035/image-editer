@@ -70,6 +70,7 @@ export default function CanvasViewport() {
     setReplaceFrom,
     adjust,
     adjustScope,
+    adjustAllLayers,
     loadImage,
     historyBegin,
     commitStrokeHistory,
@@ -182,17 +183,27 @@ export default function CanvasViewport() {
       shapePreview,
       composite: (docCtx) => {
         if (previewing) {
-          adjustPreviewRef.current = getAdjustPreview(adjustPreviewRef.current, {
+          // 色調整プレビュー: 表示中ビューポート範囲のみをデバイス解像度で合成（仕様書 4.4 / 2.2）
+          const pv = getAdjustPreview(adjustPreviewRef.current, {
             layers,
             activeLayerId,
+            allLayers: adjustAllLayers,
             params: adjust,
             scope: adjustScope,
             selection,
             width: docWidth,
             height: docHeight,
             revision,
+            view,
+            cssWidth: size.w,
+            cssHeight: size.h,
+            dpr: window.devicePixelRatio,
           });
-          docCtx.drawImage(adjustPreviewRef.current.canvas, 0, 0, docWidth, docHeight);
+          adjustPreviewRef.current = pv;
+          if (pv.region.w > 0 && pv.region.h > 0) {
+            docCtx.setTransform(1, 0, 0, 1, 0, 0);
+            docCtx.drawImage(pv.canvas, pv.region.x, pv.region.y);
+          }
         } else {
           // ビューポート範囲のみ合成（画像全体サイズの Canvas は作らない。仕様書 2.2）
           const cache = getComposite(compositeRef.current, {
@@ -252,6 +263,7 @@ export default function CanvasViewport() {
     tool,
     adjust,
     adjustScope,
+    adjustAllLayers,
     activeLayerId,
   ]);
 
