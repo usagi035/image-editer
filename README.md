@@ -1,5 +1,7 @@
 # Image Editor — Minecraft テクスチャ向けドット絵エディタ
 
+**Version 0.2.0 “Stardust”**（バージョンは `package.json` と `config.yaml` の `app.version` / `app.codename` で管理 — ヘッダーとウィンドウタイトルに表示されます）
+
 Minecraft のテクスチャ制作（16x16〜512x512px のピクセルアート）に特化したドット絵エディタで、**幅×高さ 67,108,864 px（8192x8192）** までの画像編集に対応します。**Web（Vite 静的ビルド）** と **デスクトップ（Electron）** の両方で動作します。
 
 > 📖 **使い方（Web ページ）**: [document/index.html](./document/index.html) — ツール・操作・ショートカットをダークブルー×グラスモーフィズムのページにまとめています。
