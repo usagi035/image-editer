@@ -31,9 +31,10 @@ UI・色・フォント・閾値などの設定はすべて `config.yaml` で一
 ### ユーティリティ
 - **リサイズ**: 全レイヤーをスケール（拡大はニアレストでドット維持）
 - **クロップ**: ドラッグ範囲で全レイヤーを切り出し
-- **読み込み**: PNG / JPEG / WebP / GIF（静止画）— ファイルダイアログ、またはキャンバスへドラッグ＆ドロップ
+- **プロジェクト保存**: OpenRaster（`.ora`）にレイヤー・不透明度・可視性・名前を保持して保存（`Ctrl+S`。Electron 版は上書き / 未保存は名前付きダイアログ、ブラウザ版はダウンロード）
+- **読み込み**: `.ora`（プロジェクト） / PNG / JPEG / WebP / GIF（静止画・単一レイヤー化）— ファイルダイアログ、またはキャンバスへドラッグ＆ドロップ
 - **書き出し**: PNG / JPEG / WebP × 1x / 2x / 4x / 8x、品質は config 指定
-- **Electron 連携**: `fs` によるネイティブダイアログでの直接読み書き（Ctrl+S）
+- **Electron 連携**: `fs` によるネイティブダイアログでの直接読み書き（`preload` + IPC 経由）
 
 ## 技術スタック
 
@@ -41,6 +42,7 @@ UI・色・フォント・閾値などの設定はすべて `config.yaml` で一
 - Tailwind CSS v4（`@tailwindcss/vite`）
 - Electron（デスクトップ版 / `contextIsolation` + `preload` 経由の IPC のみ）
 - `js-yaml`（`config.yaml` パース）
+- `fflate`（`.ora`（zip）の非同期圧縮 / 展開）
 - Lucide React（アイコン）
 
 ピクセル処理は `ImageData` / `Uint32Array` のメモリ直接操作で行い、`fillRect` ループは使用しません。レイヤー合成は**表示中のビューポート範囲のみ**をキャッシュし、変更のあった差分矩形 ∩ ビューポートだけを再合成します（画像全体サイズの合成 Canvas は作らず、8192x8192 でもメモリは画面サイズが上限）。
@@ -108,7 +110,7 @@ portable exe・フォルダ版のどちらもユーザーデータ（`config.yam
 
 | 操作 | ショートカット |
 | :--- | :--- |
-| エクスポート（即書き出し） | `Ctrl+S` |
+| 保存（`.ora` 上書き / 未保存は名前付き） | `Ctrl+S` |
 | 元に戻す | `Ctrl+Z` |
 | やり直す | `Ctrl+Y` / `Ctrl+Shift+Z` |
 | ズームイン / アウト | `Ctrl++` / `Ctrl+-` |
@@ -125,7 +127,7 @@ portable exe・フォルダ版のどちらもユーザーデータ（`config.yam
 
 ```
 ┌────────────────────────────────────────────┐
-│ Header: 新規/開く/保存/元に戻す/やり直す/設定再読み込み │  寸法 / メモリ使用量 / ズーム / グリッド
+│ Header: 新規/開く/保存/書き出し/元に戻す/やり直す/設定再読み込み │  寸法 / メモリ使用量 / ズーム / グリッド
 ├───┬──────────────────────────────┬─────────┤
 │ T │                              │ カラー  │
 │ o │      Canvas Viewport        │ ツール  │
@@ -151,6 +153,7 @@ src/
 │   ├── clipboardTools.ts   # 内部クリップボード + 貼り付け浮遊レイヤー
 │   ├── adjustTools.ts      # HSV / 明度 / コントラスト
 │   ├── ioTools.ts          # 読み込み / リサイズ / クロップ / 書き出し
+│   ├── oraTools.ts         # OpenRaster(.ora) 入出力（fflate zip / stack.xml / レイヤーPNG）
 │   ├── memoryBudget.ts     # メモリ予算（MemoryBudget）
 │   ├── history.ts          # Undo/Redo（パッチ方式の履歴エンジン）
 │   ├── compositor.ts       # レイヤー合成（表示範囲のみ・Uint32Array から直接）
