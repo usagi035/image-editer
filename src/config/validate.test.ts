@@ -96,4 +96,16 @@ describe("validateConfig", () => {
     expect(config.ui.zoom_step).toBe(DEFAULT_CONFIG.ui.zoom_step);
     expect(typeof config.theme.background).toBe("string");
   });
+
+  it("app セクションは name / version / codename を保持する", () => {
+    const { config, warnings } = validateConfig({
+      app: { name: "My Editor", version: "1.2.3", codename: "Comet" },
+    });
+    expect(config.app).toEqual({ name: "My Editor", version: "1.2.3", codename: "Comet" });
+    expect(warnings.length).toBe(0);
+    // 未指定のキーは既定値（Stardust）で補完される
+    const fallback = validateConfig({ app: { name: "X" } });
+    expect(fallback.config.app.codename).toBe(DEFAULT_CONFIG.app.codename);
+    expect(fallback.config.app.version).toBe(DEFAULT_CONFIG.app.version);
+  });
 });

@@ -76,7 +76,8 @@ section:                 # キーは snake_case
 | キー | 既定値 | 説明 | 参照 |
 | :--- | :--- | :--- | :--- |
 | `app.name` | `Image Editor` | ヘッダー左端のアプリ名 | `HeaderBar.tsx` |
-| `app.version` | `0.1.0` | 予約キー（**現状未参照**。版数は `package.json` が正） | — |
+| `app.version` | `0.2.0` | ヘッダーの `v0.2.0` 表示とウィンドウタイトル（`document.title`）。**`package.json` の `version` と必ず一致させる**（成果物名 `ImageEditor-Portable-<version>.exe` にも影響） | `HeaderBar.tsx` |
+| `app.codename` | `Stardust` | バージョンのコードネーム。ヘッダーの `“Stardust”` 表示とウィンドウタイトルに使用 | `HeaderBar.tsx` |
 
 ### 4.2 `theme` — 外観（フラット構造・`:root` の CSS 変数へ）
 

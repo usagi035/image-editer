@@ -10,7 +10,8 @@
 
 app:
   name: "Image Editor"
-  version: "0.1.0"
+  version: "0.2.0"                 # バージョン番号（package.json と一致させる）
+  codename: "Stardust"             # バージョンのコードネーム（ヘッダー・ウィンドウタイトルに表示）
 
 canvas:
   default_width: 64                # 新規ドキュメントのデフォルト寸法

@@ -1,7 +1,7 @@
 {
   "name": "image-editer",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Minecraftテクスチャ制作向けドット絵編集 兼 超軽量大型画像ユーティリティ",
   "type": "module",
   "main": "electron/main.cjs",
