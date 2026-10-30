@@ -211,7 +211,7 @@ let sourceImage: ImageData | null = null;
  * 縮小表示（scale < 1）時は k ピクセルおきに間引いてソース寸法を画面サイズに抑える
  * （1/16 ズームで 8192² をそのまま作らないため）。最近傍サンプリングは drawImage 側で行う。
  */
-function layerSource(
+export function layerSource(
   layer: Layer,
   rect: Rect,
   scale: number
@@ -298,7 +298,7 @@ function compositeRegion(
 }
 
 /** 画面デバイス座標の矩形が写すドキュメント範囲（整数・レイヤー境界でクランプ） */
-function deviceToDocRect(r: Rect, view: ViewState, dpr: number): Rect {
+export function deviceToDocRect(r: Rect, view: ViewState, dpr: number): Rect {
   const scale = view.zoom * dpr;
   const ox = view.panX * dpr;
   const oy = view.panY * dpr;
@@ -310,7 +310,7 @@ function deviceToDocRect(r: Rect, view: ViewState, dpr: number): Rect {
   };
 }
 
-function intersectLayerRect(r: Rect, layer: Layer): Rect | null {
+export function intersectLayerRect(r: Rect, layer: Layer): Rect | null {
   const x = Math.max(0, r.x);
   const y = Math.max(0, r.y);
   const w = Math.min(layer.width, r.x + r.w) - x;

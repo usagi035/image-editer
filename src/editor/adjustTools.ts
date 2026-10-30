@@ -1,8 +1,8 @@
 import { getA, getB, getG, getR, packRGBA } from "./colorUtils";
 import type { Layer } from "./layerUtils";
-import { pixelsToImageData } from "./layerUtils";
+import { deviceToDocRect, intersectLayerRect, layerSource, visibleDeviceRegion } from "./compositor";
 import { buildSelectionMask } from "./selectionTools";
-import type { SelectionState } from "./types";
+import type { Rect, SelectionState, ViewState } from "./types";
 
 /**
  * 色調調整（仕様書 4.4 HSV / 明度 / コントラスト）
@@ -99,11 +99,13 @@ function hsvToRgb(h: number, s: number, v: number): void {
 /**
  * Uint32Array ピクセル列へ HSV/明度/コントラスト調整を in-place で適用する。
  * mask が与えられた場合は mask[i] === 1 のピクセルのみ処理する。
+ * onProgress は定期的に呼ばれる（Worker からの進捗通知用）。
  */
 export function adjustPixels(
   pixels: Uint32Array,
   params: AdjustParams,
-  mask: Uint8Array | null = null
+  mask: Uint8Array | null = null,
+  onProgress?: (done: number, total: number) => void
 ): void {
   if (isIdentityAdjust(params)) return;
   const hasMask = mask !== null;
@@ -113,8 +115,11 @@ export function adjustPixels(
   const cf = 1 + params.contrast / 100;
   // HSV が中立なら RGB 直接コントラスト処理に短絡（高速化）
   const hsvOnly = hueShift === 0 && satMul === 1 && valMul === 1;
+  const total = pixels.length;
+  const progressStride = 1 << 16; // 65536 px ごとに進捗通知
 
-  for (let i = 0; i < pixels.length; i++) {
+  for (let i = 0; i < total; i++) {
+    if (onProgress && i % progressStride === 0) onProgress(i, total);
     if (hasMask && mask![i] === 0) continue;
     const src = pixels[i];
     const a = getA(src);
@@ -170,34 +175,80 @@ export interface AdjustPreviewCache {
   key: string;
   selection: SelectionState | null;
   canvas: HTMLCanvasElement;
+  /** 合成済みの領域（画面デバイス座標・整数） */
+  region: Rect;
 }
 
 export interface AdjustPreviewParams {
   layers: Layer[];
   activeLayerId: string;
+  /** true なら全レイヤーをプレビュー対象にする（「全レイヤーに適用」チェック） */
+  allLayers: boolean;
   params: AdjustParams;
   scope: "layer" | "selection";
   selection: SelectionState | null;
   width: number;
   height: number;
   revision: number;
+  view: ViewState;
+  /** ビューポートの CSS px サイズ */
+  cssWidth: number;
+  cssHeight: number;
+  dpr: number;
+}
+
+/** doc 座標のマスクから rect 領域（k ピクセルおき間引き）のサブマスクを切り出す */
+function sliceMask(
+  mask: Uint8Array,
+  rect: Rect,
+  k: number,
+  docWidth: number
+): Uint8Array {
+  const sw = Math.ceil(rect.w / k);
+  const sh = Math.ceil(rect.h / k);
+  const out = new Uint8Array(sw * sh);
+  for (let row = 0; row < sh; row++) {
+    const srcRow = (rect.y + row * k) * docWidth + rect.x;
+    const dstRow = row * sw;
+    if (k === 1) {
+      out.set(mask.subarray(srcRow, srcRow + sw), dstRow);
+    } else {
+      for (let col = 0; col < sw; col++) {
+        out[dstRow + col] = mask[srcRow + col * k];
+      }
+    }
+  }
+  return out;
 }
 
 /**
- * リアルタイムプレビュー用の合成キャンバスを返す。
- * revision / パラメータ / 選択の変化時のみ再計算する。
- * 対象は現在のレイヤー（改訂版仕様書 4.4: モード分けは廃止）。
+ * リアルタイムプレビュー用の合成キャンバスを返す（仕様書 4.4 / 2.2）。
+ * - **表示中のビューポート範囲のみ**をデバイス解像度で合成する
+ *   （画像全体サイズの Canvas は作らない。大画像でもプレビューのメモリは画面サイズ上限）
+ * - revision / パラメータ / 選択 / ビューポートの変化時のみ再計算する
+ * - 対象は選択中レイヤー（「全レイヤーに適用」チェック時は全レイヤー）
  */
 export function getAdjustPreview(
   cache: AdjustPreviewCache | null,
   p: AdjustPreviewParams
 ): AdjustPreviewCache {
-  const targets = p.layers.filter((l) => l.id === p.activeLayerId);
+  const targets = p.allLayers
+    ? p.layers
+    : p.layers.filter((l) => l.id === p.activeLayerId);
   const mask = buildAdjustMask(p.scope, p.selection, p.width, p.height);
   const selRef = p.selection;
+  const region = visibleDeviceRegion(
+    p.view,
+    p.cssWidth,
+    p.cssHeight,
+    p.dpr,
+    p.width,
+    p.height
+  );
   const key = [
     p.revision,
     p.activeLayerId,
+    p.allLayers,
     p.scope,
     p.params.hue,
     p.params.saturation,
@@ -205,49 +256,61 @@ export function getAdjustPreview(
     p.params.contrast,
     p.width,
     p.height,
+    `${region.x},${region.y},${region.w},${region.h}@${p.view.zoom}:${p.dpr}:${p.cssWidth}x${p.cssHeight}`,
   ].join(":");
 
   if (cache && cache.key === key && cache.selection === selRef) return cache;
 
-  // プレビューはドキュメント全体解像度で合成する
-  const pw = Math.max(1, p.width);
-  const ph = Math.max(1, p.height);
+  const canvas = cache?.canvas ?? document.createElement("canvas");
+  // ドキュメントが画面外 → 描画対象なし（領域キーと selection だけ進める）
+  if (region.w === 0 || region.h === 0) {
+    return { key, selection: selRef, canvas, region };
+  }
 
-  let canvas = cache?.canvas;
-  if (!canvas) canvas = document.createElement("canvas");
-  if (canvas.width !== pw || canvas.height !== ph) {
-    canvas.width = pw;
-    canvas.height = ph;
+  if (canvas.width !== region.w || canvas.height !== region.h) {
+    canvas.width = region.w; // サイズ変更で内容はクリアされる
+    canvas.height = region.h;
   }
   const ctx = canvas.getContext("2d");
-  if (!ctx) return { key, selection: selRef, canvas };
-  ctx.clearRect(0, 0, pw, ph);
+  if (!ctx) return { key, selection: selRef, canvas, region };
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, region.w, region.h);
+  // doc 座標 → キャンバス座標（キャンバス原点 = region 左上）
+  const scale = p.view.zoom * p.dpr;
+  ctx.setTransform(
+    scale,
+    0,
+    0,
+    scale,
+    p.view.panX * p.dpr - region.x,
+    p.view.panY * p.dpr - region.y
+  );
   ctx.imageSmoothingEnabled = false;
-  ctx.globalAlpha = 1;
 
+  // プレビュー対象（target）に写るドキュメント範囲だけを合成する
+  const docRect = deviceToDocRect(region, p.view, p.dpr);
   const targetIds = new Set(targets.map((t) => t.id));
-  // レイヤーを描くための一時キャンバス（ループ内で再利用・保持しない）
-  let tmp: HTMLCanvasElement | null = null;
+  const k = scale >= 1 ? 1 : Math.max(1, Math.round(1 / scale));
 
   for (const layer of p.layers) {
     if (!layer.visible || layer.opacity <= 0) continue;
-    ctx.globalAlpha = layer.opacity / 100;
-    if (!tmp) tmp = document.createElement("canvas");
-    if (tmp.width !== layer.width || tmp.height !== layer.height) {
-      tmp.width = layer.width;
-      tmp.height = layer.height;
-    }
-    const tctx = tmp.getContext("2d", { willReadFrequently: true });
-    if (tctx) {
-      tctx.putImageData(pixelsToImageData(layer.pixels, layer.width, layer.height), 0, 0);
-      if (targetIds.has(layer.id)) {
-        const img = tctx.getImageData(0, 0, layer.width, layer.height);
-        adjustPixels(new Uint32Array(img.data.buffer), p.params, mask);
-        tctx.putImageData(img, 0, 0);
+    const rect = intersectLayerRect(docRect, layer);
+    if (!rect) continue;
+    // 表示範囲のソースのみ（compositor と共通・常設 Canvas 禁止）
+    const src = layerSource(layer, rect, scale);
+    if (!src) continue;
+    if (targetIds.has(layer.id)) {
+      const sctx = src.getContext("2d", { willReadFrequently: true });
+      if (sctx) {
+        const img = sctx.getImageData(0, 0, src.width, src.height);
+        const submask = mask ? sliceMask(mask, rect, k, p.width) : null;
+        adjustPixels(new Uint32Array(img.data.buffer), p.params, submask);
+        sctx.putImageData(img, 0, 0);
       }
-      ctx.drawImage(tmp, 0, 0, pw, ph);
     }
+    ctx.globalAlpha = layer.opacity / 100;
+    ctx.drawImage(src, rect.x, rect.y, rect.w, rect.h);
   }
   ctx.globalAlpha = 1;
-  return { key, selection: selRef, canvas };
+  return { key, selection: selRef, canvas, region };
 }
