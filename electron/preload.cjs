@@ -9,5 +9,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   loadConfigPath: () => ipcRenderer.invoke("config:path"),
   openImageFile: () => ipcRenderer.invoke("image:open"),
   saveImageFile: (payload) => ipcRenderer.invoke("image:save", payload),
+  saveOraFile: (payload) => ipcRenderer.invoke("ora:save", payload),
   readFileDataUrl: (filePath) => ipcRenderer.invoke("file:read-data-url", filePath),
 });

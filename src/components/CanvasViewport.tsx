@@ -72,6 +72,7 @@ export default function CanvasViewport() {
     adjustScope,
     adjustAllLayers,
     loadImage,
+    loadOra,
     historyBegin,
     commitStrokeHistory,
     applySelectionOperation,
@@ -122,14 +123,25 @@ export default function CanvasViewport() {
       e.preventDefault();
       setDropActive(false);
       const file = e.dataTransfer.files?.[0];
-      if (!file || !file.type.startsWith("image/")) return;
+      if (!file) return;
       try {
-        await loadImage(URL.createObjectURL(file), file.name);
+        // .ora はプロジェクトとして、他は image/* の単一レイヤーとして読む
+        if (file.name.toLowerCase().endsWith(".ora")) {
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          await loadOra(bytes, file.name);
+        } else if (file.type.startsWith("image/")) {
+          const url = URL.createObjectURL(file);
+          try {
+            await loadImage(url, file.name);
+          } finally {
+            URL.revokeObjectURL(url);
+          }
+        }
       } catch (err) {
         console.error(err);
       }
     },
-    [loadImage]
+    [loadImage, loadOra]
   );
 
   // --- サイズ追従（ResizeObserver） ---

@@ -7,6 +7,12 @@ export interface ElectronAPI {
     defaultName: string;
     dataUrl: string;
   }) => Promise<{ canceled: boolean; path?: string }>;
+  /** .ora プロジェクト保存（path あり=上書き・なし=名前付きダイアログ: 仕様書 5.1） */
+  saveOraFile: (payload: {
+    defaultName: string;
+    path: string | null;
+    data: Uint8Array;
+  }) => Promise<{ canceled: boolean; path?: string }>;
   readFileDataUrl: (filePath: string) => Promise<string | null>;
 }
 

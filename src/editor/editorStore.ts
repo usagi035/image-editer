@@ -20,6 +20,7 @@ import {
   renderExportCanvas,
   resizeLayers,
 } from "./ioTools";
+import { decodeOra, encodeOra, ORA_MIME } from "./oraTools";
 import {
   bytesToUint32,
   cloneLayer,
@@ -248,6 +249,8 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
   docWidth: DEFAULT_CONFIG.canvas.default_width,
   docHeight: DEFAULT_CONFIG.canvas.default_height,
   docName: "untitled",
+  /** プロジェクト（.ora）のパス（Electron 上書き保存用・ブラウザは常に null） */
+  docPath: null,
 
   setDocumentSize(w, h) {
     const s = get();
@@ -314,6 +317,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
       docWidth: nw,
       docHeight: nh,
       docName: "untitled",
+      docPath: null,
       layers: [layer],
       activeLayerId: layer.id,
       selection: null, // 新規作成時は選択を解除
@@ -349,6 +353,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
       docWidth: nw,
       docHeight: nh,
       docName: name.replace(/\.[^.]+$/, "") || "untitled",
+      docPath: null, // 画像ファイルはプロジェクトではない（上書き保存対象外）
       layers: [layer],
       activeLayerId: layer.id,
       selection: null,
@@ -357,6 +362,77 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
     set(historySync());
     // 画像を開いたときの初期ズームは「画面に合わせる」（仕様書 3）
     get().fitZoom();
+  },
+
+  /** .ora プロジェクトを読み込む（仕様書 5.2: レイヤー構造を復元） */
+  async loadOra(bytes, name, path) {
+    const s = get();
+    try {
+      const decoded = await decodeOra(bytes);
+      const { width, height, layers } = decoded;
+      // 上限チェック（仕様書 5.2: canvas.max_pixels）
+      const limitError = checkPixelLimit(width, height, s.config.canvas.max_pixels);
+      if (limitError) {
+        showErrorDialog(limitError);
+        return;
+      }
+      // レイヤー全体で予算超過なら拒否（仕様書 2.2）
+      const mem = budgetOf(s.config).canAllocate(
+        { layerCount: layers.length, width, height, hasSelection: false },
+        0
+      );
+      if (!mem.ok) {
+        showErrorDialog(mem.message);
+        return;
+      }
+      historyEngine.clear(); // 読み込みで履歴をリセット
+      markDirty();
+      set({
+        docWidth: width,
+        docHeight: height,
+        docName: name.replace(/\.ora$/i, "") || "untitled",
+        docPath: path ?? null,
+        layers,
+        activeLayerId: layers[layers.length - 1]?.id ?? "",
+        selection: null,
+        revision: s.revision + 1,
+      });
+      set(historySync());
+      get().fitZoom();
+    } catch (err) {
+      showErrorDialog(err instanceof Error ? err.message : ".ora の読み込みに失敗しました");
+    }
+  },
+
+  /**
+   * .ora プロジェクトを保存する（仕様書 5.1: Ctrl+S = .ora 保存）。
+   * Electron: docPath があれば上書き、無ければ保存ダイアログ。
+   * ブラウザ: ダウンロード。成功時に docPath を更新。
+   */
+  async saveOra() {
+    const s = get();
+    try {
+      const bytes = await encodeOra(s.layers, s.docWidth, s.docHeight, s.docName);
+      const defaultName = `${s.docName || "untitled"}.ora`;
+      // Electron: ネイティブ保存（上書き or 名前付き）
+      if (window.electronAPI?.saveOraFile) {
+        const res = await window.electronAPI.saveOraFile({
+          defaultName,
+          path: s.docPath,
+          data: bytes,
+        });
+        if (res.canceled || !res.path) return null;
+        set({ docPath: res.path });
+        return res.path;
+      }
+      // ブラウザ: ダウンロード（パス管理はできない）
+      const blob = new Blob([bytes.slice().buffer], { type: ORA_MIME });
+      downloadBlob(blob, defaultName);
+      return defaultName;
+    } catch (err) {
+      showErrorDialog(err instanceof Error ? err.message : ".ora の保存に失敗しました");
+      return null;
+    }
   },
 
   cropDocument(x, y, w, h) {

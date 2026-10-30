@@ -56,12 +56,18 @@ export interface EditorContextValue {
   docHeight: number;
   /** ドキュメント名（保存時の既定ファイル名に使用） */
   docName: string;
+  /** プロジェクト（.ora）のパス（Electron 上書き保存用・ブラウザ/未保存は null） */
+  docPath: string | null;
   /** 全レイヤーを含めてリサイズ（仕様書 5） */
   setDocumentSize: (w: number, h: number) => void;
   /** 新規作成: 寸法変更 + レイヤー初期化を同時に行う */
   newDocument: (w: number, h: number) => void;
   /** 画像読み込み（dataUrl/objectURL）: ドキュメント置換 */
   loadImage: (src: string, name: string) => Promise<void>;
+  /** .ora プロジェクト読み込み（レイヤー構造を復元・path は Electron のみ） */
+  loadOra: (bytes: Uint8Array, name: string, path?: string) => Promise<void>;
+  /** .ora 保存（Electron: 上書き/名前付きダイアログ・ブラウザ: DL）。戻り値は保存先 */
+  saveOra: () => Promise<string | null>;
   /** 選択範囲（未選択時は全画面）で全レイヤーを切り出す */
   cropDocument: (x: number, y: number, w: number, h: number) => void;
   /** 書き出し（Electron 保存 or ブラウザDL）。戻り値は保存先（キャンセル時は null） */

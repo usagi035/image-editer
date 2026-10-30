@@ -163,7 +163,7 @@ section:                 # キーは snake_case
 
 | キー | 既定値 | 説明 | 参照 |
 | :--- | :--- | :--- | :--- |
-| `export.default_format` | `png` | `png` \| `jpeg` \| `webp`（Ctrl+S の既定形式） | `HeaderBar.tsx` / `ExportDialog.tsx` |
+| `export.default_format` | `png` | `png` \| `jpeg` \| `webp`（書き出しダイアログの既定形式） | `HeaderBar.tsx` / `ExportDialog.tsx` |
 | `export.scales` | `[1, 2, 4, 8]` | 倍率ボタン | `ExportDialog.tsx` |
 | `export.jpeg_quality` | `92` | **0〜100**（Canvas API 用に `/100` して渡す） | `ioTools.qualityFor` |
 | `export.jpeg_background` | `#ffffff` | **JPEG の透過部分を塗る背景色** | `ioTools.renderExportCanvas` |
@@ -173,7 +173,7 @@ section:                 # キーは snake_case
 
 | キー | 既定値 | 割当て |
 | :--- | :--- | :--- |
-| `shortcuts.save` | `Ctrl+S` | 即エクスポート |
+| `shortcuts.save` | `Ctrl+S` | `.ora` プロジェクト保存（上書き / 未保存は名前付き） |
 | `shortcuts.undo` | `Ctrl+Z` | 元に戻す（ヘッダーの「元に戻す」ボタンと連動） |
 | `shortcuts.redo` / `redo_alternative` | `Ctrl+Y` / `Ctrl+Shift+Z` | やり直す（どちらでも可） |
 | `shortcuts.zoom_in` / `_out` | `Ctrl+Plus` / `Ctrl+Minus` | ズームイン / アウト（カーソル位置基準） |
@@ -289,5 +289,6 @@ theme:
 | 選択 & 色置換（MS7） | 実装済み（`feature/selection-replace`）: 選択演算（通常/Shift加算/Alt減算・全選択/解除/反転）・マーチングアンツ・選択外への書き込み遮断・コピー/切り取り/貼り付け（浮遊→Enter/ツール切替で確定・Escで破棄）・色置換の範囲（選択/レイヤー全体）。閾値以上の色置換は Worker 実行。ショートカット `copy`/`cut`/`paste`/`select_all`/`deselect`/`invert_selection` を追加 |
 | 図形 & ミラー（MS8） | 実装済み（`feature/shapes-mirror`）: 直線/矩形/楕円ツール（ドラッグ中プレビュー・離しで確定、矩形・楕円は `tools.shape.fill_mode` で枠のみ/塗り、Shift=45度/正方形/正円）+ ミラー描画（`tools.shape.mirror`: 縦軸/横軸/両方をペン・消しゴム・図形に適用）。選択マスクで書き込み遮断。塗り図形は `worker_pixel_threshold` 以上で Worker 実行（進捗・キャンセル・編集ロックはバケツと共通） |
 | 色調整の Worker 化（MS9） | 実装済み（`feature/ms9-adjust-worker`）: HSV/コントラスト確定は `worker_pixel_threshold` 以上で Web Worker 実行（`adjust` ジョブ・複数レイヤーは並列・進捗は加重平均・キャンセル時は実行前のまま）。リアルタイムプレビューは**表示中ビューポート範囲のみ**をデバイス解像度で合成（大画像でもプレビューのメモリは画面サイズ上限）。「全レイヤーに適用」チェックで選択中レイヤー以外にも一括適用 |
+| .ora 入出力（MS10） | 実装済み（`feature/ms10-ora`）: プロジェクト形式 = OpenRaster（`oraTools.ts` + `fflate`）。`Ctrl+S` は `.ora` 保存（Electron: `docPath` あれば上書き・無ければ名前付きダイアログ / ブラウザ: ダウンロード）、画像書き出しは「書き出し」ボタン（ExportDialog）に分離。読込は「開く」/ D&D / ファイル選択で `.ora` を判別してレイヤー構造（名前・不透明度・可視性）を復元（`loadOra`）。zip 構成: `mimetype`（先頭・非圧縮）/ `stack.xml`（自前パーサ）/ `data/*.png`（最前面=0.png）/ `mergedimage.png`。4096x4096 の保存/読込を実機確認 |
 | ポータブル版前提 | 実装済み（`feature/portable-app`）: `build:exe` は NSIS インストーラを廃止し **portable exe + フォルダ版（`dir` ターゲット）** の 2 成果物を生成。ユーザー設定は **exe 隣の `data/config.yaml`**（portable は `PORTABLE_EXECUTABLE_DIR` / フォルダ版は exe のあるフォルダ）。書き込み不可・開発時は `userData/config.yaml` へフォールバック。`data/` ごと移動すれば設定も持ち運び可能 |
 | 移動ツール（仕様 3） | 実装済み（`feature/hand-tool`）: ツールボックスに「移動」（ハンド）を追加し、左ドラッグでビューポートをパン。Space+ドラッグ / 中ボタンドラッグも従来どおり利用可。ズーム中に見切れた画像はドラッグで移動でき、`Ctrl+0` で全体表示に合わせ直せる |
