@@ -6,7 +6,7 @@ import type { AppConfig } from "./configTypes";
  * 改訂版仕様書 2.1 の「config.yaml (既定値)」に準拠。
  */
 export const DEFAULT_CONFIG: AppConfig = {
-  app: { name: "Image Editor", version: "0.1.0" },
+  app: { name: "Image Editor", version: "0.2.0", codename: "Stardust" },
   theme: {
     background: "#1e1e24",
     panel: "#2a2a33",

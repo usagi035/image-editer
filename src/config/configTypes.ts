@@ -105,6 +105,8 @@ export interface ExportConfig {
 export interface AppMeta {
   name: string;
   version: string;
+  /** バージョンのコードネーム（例: "Stardust"）— ヘッダーとウィンドウタイトルに表示 */
+  codename: string;
 }
 
 export interface AppConfig {

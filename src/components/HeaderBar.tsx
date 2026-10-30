@@ -152,6 +152,11 @@ export default function HeaderBar() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [config.shortcuts.save, saveOra]);
 
+  // ウィンドウタイトルにアプリ名とバージョンを表示（Electron も document.title を使用）
+  useEffect(() => {
+    document.title = `${config.app.name} v${config.app.version} “${config.app.codename}”`;
+  }, [config.app.name, config.app.version, config.app.codename]);
+
   const accent = config.theme.accent;
   const muted = config.theme.text_muted;
 
@@ -164,8 +169,16 @@ export default function HeaderBar() {
       }}
     >
       {/* ファイル操作 */}
-      <span className="mr-2 font-semibold" style={{ color: accent }}>
+      <span className="mr-1 font-semibold" style={{ color: accent }}>
         {config.app.name}
+      </span>
+      {/* バージョン（config: app.version / app.codename） */}
+      <span
+        className="mr-2 font-mono-nums"
+        style={{ color: muted, fontSize: "0.75em" }}
+        title={`バージョン ${config.app.version}「${config.app.codename}」（config: app.version / app.codename）`}
+      >
+        v{config.app.version} “{config.app.codename}”
       </span>
       <HeaderButton
         label="新規"
